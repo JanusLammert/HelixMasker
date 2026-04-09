@@ -539,8 +539,8 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
     <kbd>P</kbd> Poly &nbsp;
     <kbd>F</kbd> Fill &nbsp;
     <kbd>Ctrl+Z</kbd> Undo &nbsp;
-    <kbd>[ ]</kbd> Brush size &nbsp;
-    <kbd>Scroll</kbd> Zoom
+    <kbd>Scroll</kbd> Brush size &nbsp;
+    <kbd>Ctrl+Scroll</kbd> Zoom
     <button class="btn" onclick="openModal()" style="margin-left:8px;padding:4px 10px;font-size:11px">⌨ All shortcuts</button>
   </div>
 </header>
@@ -682,6 +682,38 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
       </div>
       <button class="btn" style="width:100%;justify-content:center" onclick="applyRadialMask()">
         ⬤ Apply as Ring Mask
+      </button>
+    </div>
+  </div>
+
+  <!-- Rotational Symmetry -->
+  <div class="panel">
+    <div class="panel-hdr open" onclick="togglePanel(this)">
+      <div class="panel-dot"></div> Rotational Symmetry
+      <span class="chevron">▶</span>
+    </div>
+    <div class="panel-body open">
+      <div class="field">
+        <label>Symmetry order <span class="unit">Cn</span></label>
+        <div class="axis-group" id="sym-btns">
+          <button class="axis-btn active" data-sym="1" onclick="setCSymmetry(1)">C1</button>
+          <button class="axis-btn" data-sym="2" onclick="setCSymmetry(2)">C2</button>
+          <button class="axis-btn" data-sym="3" onclick="setCSymmetry(3)">C3</button>
+          <button class="axis-btn" data-sym="4" onclick="setCSymmetry(4)">C4</button>
+        </div>
+      </div>
+      <div class="field" style="margin-top:6px">
+        <label>Custom order</label>
+        <input type="number" id="sym-custom" value="1" min="1" max="36" step="1"
+               oninput="setCSymmetry(Math.max(1,Math.min(36,+this.value||1)))">
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:6px;line-height:1.5">
+        Mask is automatically symmetrized after each stroke.
+        Dashed spokes show the symmetry axes.
+      </div>
+      <button class="btn" style="width:100%;justify-content:center;margin-top:8px"
+              onclick="pushUndoState();applyCSymmetry();markMaskDirty();render();schedulePreview();toast('Symmetry applied','success')">
+        ↻ Re-apply to current mask
       </button>
     </div>
   </div>
@@ -864,7 +896,8 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
       <div>
         <div class="sc-row"><div class="sc-keys"><kbd>[</kbd></div><span class="sc-desc">Smaller brush</span></div>
         <div class="sc-row"><div class="sc-keys"><kbd>]</kbd></div><span class="sc-desc">Larger brush</span></div>
-        <div class="sc-row"><div class="sc-keys"><kbd>Scroll</kbd></div><span class="sc-desc">Zoom in/out</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>Scroll</kbd></div><span class="sc-desc">Brush size</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>Ctrl+Scroll</kbd></div><span class="sc-desc">Zoom in/out</span></div>
         <div class="sc-row"><div class="sc-keys"><kbd>Mid drag</kbd></div><span class="sc-desc">Pan view</span></div>
         <div class="sc-row"><div class="sc-keys"><kbd>Del</kbd></div><span class="sc-desc">Clear mask</span></div>
         <div class="sc-row"><div class="sc-keys"><kbd>Esc</kbd></div><span class="sc-desc">Cancel polygon</span></div>
@@ -885,6 +918,7 @@ let volShape = null;       // [nz, ny, nx]
 let apix = 1.0;
 let viewAxis = 0;          // 0=XY(Z-slice), 1=XZ(Y-slice), 2=YZ(X-slice)
 let helixAxis = 2;         // 0=X, 1=Y, 2=Z
+let cSymmetry = 1;         // rotational symmetry order (1 = none)
 let sliceIndex = 0;
 let contrastLow = 2, contrastHigh = 98;
 let showRings = false;
@@ -975,6 +1009,7 @@ function onMouseDown(e) {
   if (activeTool === 'fill') {
     pushUndoState();
     floodFill(vx, vy, true);
+    applyCSymmetry();
     markMaskDirty(); render(); schedulePreview();
     return;
   }
@@ -1018,30 +1053,43 @@ function onMouseMove(e) {
 
 function onMouseUp(e) {
   if (e.button===1) { isPanning=false; return; }
-  if (isDrawing) { isDrawing=false; lastVX=-1; schedulePreview(); }
+  if (isDrawing) {
+    isDrawing=false; lastVX=-1;
+    applyCSymmetry();
+    schedulePreview();
+  }
 }
 
 function onDblClick(e) {
   if (activeTool==='polygon' && polygonPoints.length >= 3) {
     pushUndoState();
     closePolygon();
+    applyCSymmetry();
     markMaskDirty(); render(); schedulePreview();
   }
 }
 
 function onWheel(e) {
   e.preventDefault();
-  const delta = e.deltaY > 0 ? 0.85 : 1.18;
-  const newZoom = Math.max(0.1, Math.min(20, zoom*delta));
-  // Zoom toward mouse
-  const rect = displayCanvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
-  panX = mx - (mx-panX) * (newZoom/zoom);
-  panY = my - (my-panY) * (newZoom/zoom);
-  zoom = newZoom;
-  document.getElementById('zoom-display').textContent = Math.round(zoom*100)+'%';
-  document.getElementById('sb-zoom').textContent = Math.round(zoom*100)+'%';
+  if (e.ctrlKey || e.metaKey) {
+    // Ctrl+scroll → zoom toward cursor
+    const factor = e.deltaY > 0 ? 0.85 : 1.18;
+    const newZoom = Math.max(0.1, Math.min(20, zoom * factor));
+    const rect = displayCanvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    panX = mx - (mx - panX) * (newZoom / zoom);
+    panY = my - (my - panY) * (newZoom / zoom);
+    zoom = newZoom;
+    document.getElementById('zoom-display').textContent = Math.round(zoom * 100) + '%';
+    document.getElementById('sb-zoom').textContent = Math.round(zoom * 100) + '%';
+  } else {
+    // Scroll → brush size
+    const step = e.shiftKey ? 5 : 2;
+    brushSize = Math.max(1, Math.min(200, brushSize + (e.deltaY > 0 ? -step : step)));
+    document.getElementById('brush-size').value = brushSize;
+    document.getElementById('brush-size-val').textContent = brushSize;
+  }
   render();
 }
 
@@ -1204,8 +1252,38 @@ function applyRadialMask() {
     maskCtx.arc(cx,cy,inner/apix,0,Math.PI*2);
     maskCtx.fill();
   }
+  applyCSymmetry();
   markMaskDirty(); render(); schedulePreview();
   toast('Ring mask applied','success');
+}
+
+// ── C-symmetry ────────────────────────────────────────────────
+function applyCSymmetry() {
+  if (cSymmetry <= 1) return;
+  const {w,h} = getSliceDimensions();
+  const cx = w / 2, cy = h / 2;
+  const angleStep = (2 * Math.PI) / cSymmetry;
+
+  // Snapshot current mask
+  const orig = document.createElement('canvas');
+  orig.width = w; orig.height = h;
+  orig.getContext('2d').drawImage(maskCanvas, 0, 0);
+
+  // Clear and redraw all rotational copies using additive blend (OR for binary)
+  maskCtx.fillStyle = '#000';
+  maskCtx.fillRect(0, 0, w, h);
+  maskCtx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < cSymmetry; i++) {
+    maskCtx.save();
+    maskCtx.translate(cx, cy);
+    maskCtx.rotate(i * angleStep);
+    maskCtx.translate(-cx, -cy);
+    maskCtx.drawImage(orig, 0, 0);
+    maskCtx.restore();
+  }
+  maskCtx.globalCompositeOperation = 'source-over';
+  // Clamp values back to binary (lighter can exceed 255, stays white which is fine)
+  markMaskDirty();
 }
 
 // ── Mask color cache ──────────────────────────────────────────
@@ -1265,6 +1343,26 @@ function render() {
   ctx.moveTo(0,h/2); ctx.lineTo(w,h/2);
   ctx.stroke();
   ctx.setLineDash([]);
+
+  // C-symmetry guide spokes
+  if (cSymmetry > 1) {
+    const cx=w/2, cy=h/2, R=Math.max(w,h);
+    ctx.strokeStyle='rgba(71,0,36,0.55)';
+    ctx.lineWidth=0.8/scale;
+    ctx.setLineDash([3/scale,4/scale]);
+    for (let i=0; i<cSymmetry; i++) {
+      const a = i*(2*Math.PI/cSymmetry);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx+Math.cos(a)*R, cy+Math.sin(a)*R);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    // Label
+    ctx.fillStyle='rgba(219,157,71,0.55)';
+    ctx.font=`bold ${11/scale}px "Barlow Condensed", sans-serif`;
+    ctx.fillText(`C${cSymmetry}`, cx+4/scale, cy-4/scale);
+  }
 
   // Radial rings
   if (showRings) {
@@ -1393,14 +1491,33 @@ function setTool(name) {
   render();
 }
 
-function setHelixAxis(ax) {
-  helixAxis=ax;
-  document.querySelectorAll('.axis-btn[data-axis]').forEach(b=>{
-    b.classList.toggle('active',+b.dataset.axis===ax);
+function setCSymmetry(n) {
+  cSymmetry = Math.max(1, Math.min(36, n));
+  document.getElementById('sym-custom').value = cSymmetry;
+  document.querySelectorAll('#sym-btns .axis-btn').forEach(b => {
+    b.classList.toggle('active', +b.dataset.sym === cSymmetry);
   });
-  const label=['X','Y','Z'][ax];
-  document.getElementById('sb-helix').textContent=
+  render();
+  if (cSymmetry > 1) toast(`C${cSymmetry} symmetry active — strokes will be symmetrized`, 'info');
+}
+
+function setHelixAxis(ax) {
+  helixAxis = ax;
+  document.querySelectorAll('.axis-btn[data-axis]').forEach(b => {
+    b.classList.toggle('active', +b.dataset.axis === ax);
+  });
+  const label = ['X', 'Y', 'Z'][ax];
+  document.getElementById('sb-helix').textContent =
     `Rise=${document.getElementById('p-rise').value}Å  Twist=${document.getElementById('p-twist').value}°  Axis=${label}`;
+
+  // Sync view axis: helix along X→YZ(2), Y→XZ(1), Z→XY(0)
+  const viewMap = [2, 1, 0];
+  const targetView = viewMap[ax];
+  const viewLabels = ['XY', 'XZ', 'YZ'];
+  if (volShape && viewAxis !== targetView) {
+    toast(`Helix axis ${label} → drawing on ${viewLabels[targetView]} plane`, 'info');
+    setViewAxis(targetView);
+  }
 }
 
 function setViewAxis(ax) {
