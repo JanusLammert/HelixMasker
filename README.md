@@ -102,3 +102,23 @@ The exported `helical_mask.mrc` is a float32 MRC file with values in [0, 1], com
 - RELION `--solvent_mask` parameter
 - cryoSPARC mask input
 - EMAN2 mask operations
+
+## LICENSE
+
+HelixMasker allows for an easy creation of helical masks for Cryo-EM-Processing.
+    Copyright (C) 2026  Janus Lammert
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+Contact: j.lammert@fz-juelich.de
