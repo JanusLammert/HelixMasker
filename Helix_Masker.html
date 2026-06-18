@@ -1,0 +1,2014 @@
+<!--
+  HelixMask — Cryo-EM Helical Density Map Masking Tool (standalone edition)
+  No server required — runs entirely in your browser.
+
+  Copyright (C) 2026  Janus Lammert
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+  Contact: j.lammert@fz-juelich.de
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HelixMask — Cryo-EM Helical Masking</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600&family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ── Design tokens ──────────────────────────────────────── */
+:root {
+  --bg:        #060e1a;
+  --surface:   #0b1829;
+  --surface2:  #0f2040;
+  --surface3:  #152a52;
+  --primary:   #023D6B;
+  --secondary: #470024;
+  --accent:    #DB9D47;
+  --accent-d:  #b87e2e;
+  --accent-bg: rgba(219,157,71,.08);
+  --accent-glow: rgba(219,157,71,.25);
+  --sec-bg:    rgba(71,0,36,.15);
+  --border:    #1a3a5c;
+  --border2:   #0f2840;
+  --text:      #c4d9ee;
+  --text-dim:  #4e6e90;
+  --text-bright:#e8f2fc;
+  --danger:    #e05555;
+  --success:   #52c77c;
+  --r:         6px;
+  --r-sm:      4px;
+  --shadow:    0 4px 24px rgba(0,0,0,.5);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font-size:14px;line-height:1.5;display:flex;flex-direction:column}
+input,select,button,textarea{font-family:inherit;font-size:inherit;color:inherit}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--primary)}
+
+/* ── Header ─────────────────────────────────────────────── */
+header{height:52px;min-height:52px;background:var(--primary);border-bottom:2px solid var(--accent);display:flex;align-items:center;padding:0 16px;gap:16px;position:relative;z-index:100}
+.logo{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;color:var(--accent);letter-spacing:1px}
+.logo span{color:rgba(255,255,255,.75);font-weight:400}
+.vol-badge{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:3px 12px;font-family:'Barlow Condensed',sans-serif;font-size:12px;color:var(--text-dim);transition:all .2s}
+.vol-badge.loaded{color:var(--accent);border-color:var(--accent-d)}
+.header-shortcuts{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,.5)}
+kbd{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:3px;padding:1px 5px;font-family:'JetBrains Mono',monospace;font-size:11px}
+
+/* ── Layout ──────────────────────────────────────────────── */
+.app-body{display:flex;flex:1;overflow:hidden;min-height:0}
+
+/* ── Sidebar ─────────────────────────────────────────────── */
+.sidebar{width:264px;min-width:264px;background:var(--surface);border-right:1px solid var(--border2);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-scroll{overflow-y:auto;overflow-x:hidden;flex:1}
+.panel{border-bottom:1px solid var(--border2);padding:0}
+.panel-hdr{display:flex;align-items:center;gap:8px;padding:10px 14px;cursor:pointer;user-select:none;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--text-dim);transition:color .15s}
+.panel-hdr:hover{color:var(--text)}
+.panel-hdr .chevron{margin-left:auto;font-size:10px;transition:transform .2s}
+.panel-hdr.open .chevron{transform:rotate(90deg)}
+.panel-hdr.open{color:var(--accent)}
+.panel-body{padding:12px 14px;display:none}
+.panel-body.open{display:block}
+.panel-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0}
+
+/* Upload zone */
+.upload-zone{border:2px dashed var(--border);border-radius:var(--r);padding:20px 12px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg)}
+.upload-zone:hover,.upload-zone.drag-over{border-color:var(--accent);background:var(--accent-bg)}
+.upload-zone svg{display:block;margin:0 auto 8px;opacity:.5}
+.upload-zone p{font-size:12px;color:var(--text-dim);line-height:1.4}
+.upload-zone strong{color:var(--accent)}
+.vol-info{margin-top:10px;padding:8px 10px;background:var(--bg);border-radius:var(--r-sm);border:1px solid var(--border);display:none}
+.vol-info.visible{display:block}
+.vi-row{display:flex;justify-content:space-between;align-items:center;padding:2px 0}
+.vi-label{font-size:11px;color:var(--text-dim)}
+.vi-val{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent)}
+
+/* Form controls */
+.field{margin-bottom:10px}
+.field:last-child{margin-bottom:0}
+.field label{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--text-dim);margin-bottom:4px}
+.field label .unit{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim);opacity:.7}
+input[type=number],input[type=text],select{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 8px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;transition:border-color .15s;-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button{opacity:.4}
+input[type=number]:focus,input[type=text]:focus,select:focus{outline:none;border-color:var(--accent);background:var(--accent-bg)}
+select{cursor:pointer}
+select option{background:var(--surface2)}
+
+/* Axis selector */
+.axis-group{display:flex;gap:4px}
+.axis-btn{flex:1;padding:5px 4px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);cursor:pointer;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;color:var(--text-dim);transition:all .15s}
+.axis-btn:hover{border-color:var(--accent-d);color:var(--text)}
+.axis-btn.active{background:var(--primary);border-color:var(--accent);color:var(--accent)}
+
+/* Range slider */
+input[type=range]{width:100%;height:4px;-webkit-appearance:none;background:var(--border);border-radius:2px;cursor:pointer;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid var(--surface);transition:transform .1s}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
+.range-row{display:flex;align-items:center;gap:8px}
+.range-val{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);min-width:32px;text-align:right}
+
+/* Toggle */
+.toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.toggle-label{font-size:12px;color:var(--text-dim)}
+.toggle{position:relative;width:36px;height:20px;cursor:pointer}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-track{position:absolute;inset:0;background:var(--border);border-radius:10px;transition:background .2s}
+.toggle input:checked ~ .toggle-track{background:var(--accent)}
+.toggle-thumb{position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:white;transition:transform .2s}
+.toggle input:checked ~ .toggle-thumb{transform:translateX(16px)}
+
+/* Tool buttons */
+.tool-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}
+.tool-btn{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);cursor:pointer;font-size:11px;color:var(--text-dim);transition:all .15s}
+.tool-btn:hover{border-color:var(--accent-d);color:var(--text)}
+.tool-btn.active{background:var(--accent-bg);border-color:var(--accent);color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
+.tool-btn svg{width:20px;height:20px;stroke:currentColor;fill:none}
+.tool-btn.active svg{stroke:var(--accent)}
+
+/* Action buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);cursor:pointer;font-size:12px;font-weight:500;color:var(--text);transition:all .15s;white-space:nowrap}
+.btn:hover{background:var(--surface3);border-color:var(--text-dim)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-accent{background:var(--accent);color:#1a0d00;border-color:var(--accent);font-weight:600}
+.btn-accent:hover{background:var(--accent-d);border-color:var(--accent-d)}
+.btn-danger{background:var(--secondary);border-color:var(--secondary);color:white}
+.btn-danger:hover{background:#5a0030;border-color:#5a0030}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+
+/* ── Main canvas area ─────────────────────────────────────── */
+.main-area{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;background:var(--bg)}
+.toolbar{height:44px;min-height:44px;background:var(--surface);border-bottom:1px solid var(--border2);display:flex;align-items:center;padding:0 12px;gap:8px}
+.toolbar-group{display:flex;align-items:center;gap:4px}
+.toolbar-sep{width:1px;height:24px;background:var(--border);margin:0 4px}
+.tb-btn{padding:5px 8px;background:transparent;border:1px solid transparent;border-radius:var(--r-sm);cursor:pointer;font-size:12px;color:var(--text-dim);transition:all .15s;display:flex;align-items:center;gap:4px}
+.tb-btn:hover{background:var(--surface2);color:var(--text)}
+.tb-btn.active{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
+.tb-btn svg{width:16px;height:16px;stroke:currentColor;fill:none}
+.zoom-display{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-dim);min-width:48px;text-align:center}
+.canvas-container{flex:1;position:relative;overflow:hidden;background:var(--bg);display:flex;align-items:center;justify-content:center}
+.canvas-container::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(2,61,107,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(2,61,107,.07) 1px,transparent 1px);background-size:32px 32px;pointer-events:none}
+.canvas-drop-hint{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:var(--text-dim);pointer-events:none}
+.canvas-drop-hint svg{width:64px;height:64px;opacity:.2}
+.canvas-drop-hint p{font-size:15px;opacity:.5;text-align:center}
+#main-canvas{position:absolute;top:0;left:0;width:100%;height:100%;cursor:crosshair}
+.status-bar{height:28px;min-height:28px;background:var(--surface);border-top:1px solid var(--border2);display:flex;align-items:center;padding:0 12px;gap:16px;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-dim)}
+.sb-item{display:flex;align-items:center;gap:4px}
+.sb-val{color:var(--accent)}
+
+/* ── Preview panel ────────────────────────────────────────── */
+.preview-panel{width:264px;min-width:264px;background:var(--surface);border-left:1px solid var(--border2);display:flex;flex-direction:column;overflow:hidden}
+.preview-scroll{flex:1;overflow-y:auto;padding:12px}
+.preview-hdr{padding:10px 14px;border-bottom:1px solid var(--border2);font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:8px}
+.preview-hdr .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.preview-label{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:600;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;margin:12px 0 4px}
+.preview-label:first-child{margin-top:0}
+.preview-img-wrap{border-radius:var(--r-sm);overflow:hidden;border:1px solid var(--border);background:#000;margin-bottom:4px;position:relative}
+.preview-img-wrap img{display:block;width:100%;image-rendering:pixelated}
+.preview-overlay{position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.7);border-radius:2px;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text-dim);padding:2px 4px}
+.preview-placeholder{background:var(--bg);border:1px dashed var(--border);border-radius:var(--r-sm);display:flex;align-items:center;justify-content:center;aspect-ratio:1;font-size:11px;color:var(--text-dim);margin-bottom:4px}
+.preview-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:8px}
+.preview-grid .preview-img-wrap{margin-bottom:0}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px}
+.stat-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 10px}
+.stat-label{font-size:10px;color:var(--text-dim);margin-bottom:2px}
+.stat-value{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500;color:var(--accent)}
+.export-panel{padding:12px 14px;border-top:1px solid var(--border2);background:var(--surface)}
+.export-panel .field{margin-bottom:8px}
+#btn-export{width:100%;justify-content:center;padding:10px}
+.export-progress{margin-top:8px;display:none;background:var(--bg);border-radius:var(--r-sm);overflow:hidden;border:1px solid var(--border)}
+.export-progress-bar{height:4px;background:var(--accent);width:0%;transition:width .3s}
+.export-progress-text{text-align:center;font-size:11px;color:var(--text-dim);padding:4px;font-family:'JetBrains Mono',monospace}
+.update-preview-btn{width:100%;margin-bottom:10px;justify-content:center;padding:8px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:.5px}
+.preview-busy{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-dim);justify-content:center;padding:8px}
+.spinner{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Toast ─────────────────────────────────────────────────── */
+#toast-container{position:fixed;bottom:24px;right:24px;display:flex;flex-direction:column;gap:8px;z-index:9999;pointer-events:none}
+.toast{padding:10px 16px;border-radius:var(--r);font-size:13px;font-weight:500;box-shadow:var(--shadow);animation:toastIn .25s ease;pointer-events:auto;display:flex;align-items:center;gap:8px;max-width:320px}
+.toast.info{background:var(--primary);border-left:3px solid var(--accent)}
+.toast.success{background:#0f2d1a;border-left:3px solid var(--success);color:var(--success)}
+.toast.error{background:#2d0f0f;border-left:3px solid var(--danger);color:var(--danger)}
+.toast.warning{background:#2d200f;border-left:3px solid var(--accent)}
+@keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+
+/* ── Modal ───────────────────────────────────────────────── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);opacity:0;pointer-events:none;transition:opacity .2s}
+.modal-overlay.open{opacity:1;pointer-events:auto}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px;width:480px;max-width:95vw;box-shadow:var(--shadow)}
+.modal h2{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:var(--accent);margin-bottom:16px;letter-spacing:.5px}
+.shortcut-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.sc-row{display:flex;align-items:center;gap:8px;padding:4px 0}
+.sc-keys{display:flex;gap:4px}
+.sc-desc{font-size:12px;color:var(--text-dim)}
+.tool-options{padding:8px 10px;background:var(--bg);border-radius:var(--r-sm);border:1px solid var(--border);margin-top:8px;font-size:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">HELIX<span>MASK</span></div>
+  <div class="vol-badge" id="vol-badge">No volume loaded</div>
+  <div class="header-shortcuts">
+    <kbd>B</kbd> Brush &nbsp;
+    <kbd>E</kbd> Erase &nbsp;
+    <kbd>P</kbd> Poly &nbsp;
+    <kbd>F</kbd> Fill &nbsp;
+    <kbd>Ctrl+Z</kbd> Undo &nbsp;
+    <kbd>Scroll</kbd> Brush size &nbsp;
+    <kbd>Ctrl+Scroll</kbd> Zoom
+    <button class="btn" onclick="openModal()" style="margin-left:8px;padding:4px 10px;font-size:11px">⌨ All shortcuts</button>
+  </div>
+</header>
+
+<div class="app-body">
+
+<!-- ════ LEFT SIDEBAR ════════════════════════════════════════ -->
+<aside class="sidebar">
+<div class="sidebar-scroll">
+
+  <div class="panel">
+    <div class="panel-hdr open" onclick="togglePanel(this)">
+      <div class="panel-dot"></div> Volume File <span class="chevron">▶</span>
+    </div>
+    <div class="panel-body open">
+      <div class="upload-zone" id="upload-zone">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+        </svg>
+        <p>Drop <strong>.mrc</strong> or <strong>.mrcs</strong> here<br>or <strong>click to browse</strong></p>
+      </div>
+      <input type="file" id="file-input" accept=".mrc,.mrcs" style="display:none">
+      <div class="vol-info" id="vol-info">
+        <div class="vi-row"><span class="vi-label">Filename</span><span class="vi-val" id="vi-name">—</span></div>
+        <div class="vi-row"><span class="vi-label">Dimensions</span><span class="vi-val" id="vi-dims">—</span></div>
+        <div class="vi-row"><span class="vi-label">Pixel size</span><span class="vi-val" id="vi-apix">—</span></div>
+        <div class="vi-row"><span class="vi-label">Box size</span><span class="vi-val" id="vi-boxsize">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr open" onclick="togglePanel(this)">
+      <div class="panel-dot"></div> Helix Parameters <span class="chevron">▶</span>
+    </div>
+    <div class="panel-body open">
+      <div class="field">
+        <label>Helix axis</label>
+        <div class="axis-group">
+          <button class="axis-btn" data-axis="0" onclick="setHelixAxis(0)">X</button>
+          <button class="axis-btn" data-axis="1" onclick="setHelixAxis(1)">Y</button>
+          <button class="axis-btn active" data-axis="2" onclick="setHelixAxis(2)">Z</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Rise per subunit <span class="unit">Å</span></label>
+        <input type="number" id="p-rise" value="4.75" step="0.01" min="0.1">
+      </div>
+      <div class="field">
+        <label>Twist per subunit <span class="unit">°</span></label>
+        <input type="number" id="p-twist" value="-1.0" step="0.01">
+      </div>
+      <div class="field">
+        <label>Soft edge width <span class="unit">Å</span></label>
+        <input type="number" id="p-edge" value="6.0" step="0.5" min="0">
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr open" onclick="togglePanel(this)">
+      <div class="panel-dot"></div> Drawing Tools <span class="chevron">▶</span>
+    </div>
+    <div class="panel-body open">
+      <div class="tool-grid">
+        <button class="tool-btn active" id="tool-brush" onclick="setTool('brush')" title="Brush (B)">
+          <svg viewBox="0 0 24 24"><path d="M12 19.5c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z" fill="currentColor" stroke="none"/><path d="M3.5 3.5l9 9M10.5 12.5l.5 4.5" stroke-width="2" stroke-linecap="round"/></svg>
+          Brush
+        </button>
+        <button class="tool-btn" id="tool-eraser" onclick="setTool('eraser')" title="Eraser (E)">
+          <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="3" y="12" width="14" height="8" rx="1"/><path d="M3 20l4-4M7 12l10-8" stroke-linecap="round"/></svg>
+          Eraser
+        </button>
+        <button class="tool-btn" id="tool-polygon" onclick="setTool('polygon')" title="Polygon (P)">
+          <svg viewBox="0 0 24 24" stroke-width="1.5"><polygon points="12,3 21,18 3,18"/></svg>
+          Polygon
+        </button>
+        <button class="tool-btn" id="tool-fill" onclick="setTool('fill')" title="Flood Fill (F)">
+          <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M3 20h18M7 16c0-4 8-11 8-11M7 16c4 0 8-4 8-8" stroke-linecap="round"/><circle cx="19" cy="18" r="2" fill="currentColor" stroke="none"/></svg>
+          Fill
+        </button>
+        <button class="tool-btn" id="tool-undo" onclick="undo()" title="Undo (Ctrl+Z)">
+          <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M3 10h9a7 7 0 110 14H3" stroke-linecap="round"/><path d="M3 10l4-4M3 10l4 4" stroke-linecap="round"/></svg>
+          Undo
+        </button>
+        <button class="tool-btn" id="tool-redo" onclick="redo()" title="Redo (Ctrl+Y)">
+          <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M21 10h-9a7 7 0 100 14h9" stroke-linecap="round"/><path d="M21 10l-4-4M21 10l-4 4" stroke-linecap="round"/></svg>
+          Redo
+        </button>
+      </div>
+      <div class="tool-options">
+        <div class="range-row">
+          <label style="font-size:11px;color:var(--text-dim);min-width:60px">Brush size</label>
+          <input type="range" id="brush-size" min="1" max="80" value="15"
+            oninput="brushSize=+this.value;document.getElementById('brush-size-val').textContent=this.value">
+          <span class="range-val" id="brush-size-val">15</span>
+        </div>
+        <div class="range-row" style="margin-top:6px">
+          <label style="font-size:11px;color:var(--text-dim);min-width:60px">Opacity</label>
+          <input type="range" id="mask-opacity" min="10" max="90" value="55"
+            oninput="maskOpacity=+this.value/100;document.getElementById('mask-opacity-val').textContent=this.value+'%';markMaskDirty();render()">
+          <span class="range-val" id="mask-opacity-val">55%</span>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn" onclick="invertMask()">⇄ Invert</button>
+        <button class="btn btn-danger" onclick="clearMask()">✕ Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Auto-Mask panel ──────────────────────────────────── -->
+  <div class="panel">
+    <div class="panel-hdr open" onclick="togglePanel(this)">
+      <div class="panel-dot"></div> Auto-Mask <span class="chevron">▶</span>
+    </div>
+    <div class="panel-body open">
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.6">
+        Segments the helix cross-section from density. Preview shows a <span style="color:#00d4ff">cyan</span> overlay — click <strong style="color:var(--accent)">Apply</strong> to commit, then refine with brush tools.
+      </div>
+      <div class="field">
+        <label>Density threshold <span class="unit">%tile</span></label>
+        <div class="range-row">
+          <input type="range" id="am-threshold" min="20" max="98" value="60"
+            oninput="document.getElementById('am-thresh-val').textContent=this.value+'%';scheduleAutomaskPreview()">
+          <span class="range-val" id="am-thresh-val">60%</span>
+        </div>
+        <div style="font-size:10px;color:var(--text-dim);margin-top:3px">Keep density above this percentile</div>
+      </div>
+      <div class="field">
+        <label>Dilation <span class="unit">px</span></label>
+        <div class="range-row">
+          <input type="range" id="am-dilation" min="0" max="40" value="4"
+            oninput="document.getElementById('am-dil-val').textContent=this.value;scheduleAutomaskPreview()">
+          <span class="range-val" id="am-dil-val">4</span>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Central region only</span>
+        <label class="toggle">
+          <input type="checkbox" id="am-central" checked onchange="scheduleAutomaskPreview()">
+          <div class="toggle-track"></div><div class="toggle-thumb"></div>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Fill interior holes</span>
+        <label class="toggle">
+          <input type="checkbox" id="am-fillholes" checked onchange="scheduleAutomaskPreview()">
+          <div class="toggle-track"></div><div class="toggle-thumb"></div>
+        </label>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="clearAutomask()">✕ Hide</button>
+        <button class="btn btn-accent" style="flex:1;justify-content:center;font-size:11px" onclick="applyAutomask()">✓ Apply</button>
+      </div>
+      <div id="am-status" style="font-size:11px;color:var(--text-dim);margin-top:6px;text-align:center;font-family:'JetBrains Mono',monospace"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr" onclick="togglePanel(this)">
+      <div class="panel-dot"></div> Radial Constraints <span class="chevron">▶</span>
+    </div>
+    <div class="panel-body">
+      <div class="toggle-row">
+        <span class="toggle-label">Show guide rings</span>
+        <label class="toggle">
+          <input type="checkbox" id="show-rings" onchange="showRings=this.checked;render()">
+          <div class="toggle-track"></div><div class="toggle-thumb"></div>
+        </label>
+      </div>
+      <div class="field">
+        <label>Inner radius <span class="unit">Å</span></label>
+        <input type="number" id="p-inner" value="0" min="0" step="1" placeholder="0 = disabled">
+      </div>
+      <div class="field">
+        <label>Outer radius <span class="unit">Å</span></label>
+        <input type="number" id="p-outer" value="0" min="0" step="1" placeholder="0 = disabled">
+      </div>
+      <button class="btn" style="width:100%;justify-content:center" onclick="applyRadialMask()">
+        ⬤ Apply as Ring Mask
+      </button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr open" onclick="togglePanel(this)">
+      <div class="panel-dot"></div> Rotational Symmetry <span class="chevron">▶</span>
+    </div>
+    <div class="panel-body open">
+      <div class="field">
+        <label>Symmetry order <span class="unit">Cn</span></label>
+        <div class="axis-group" id="sym-btns">
+          <button class="axis-btn active" data-sym="1" onclick="setCSymmetry(1)">C1</button>
+          <button class="axis-btn" data-sym="2" onclick="setCSymmetry(2)">C2</button>
+          <button class="axis-btn" data-sym="3" onclick="setCSymmetry(3)">C3</button>
+          <button class="axis-btn" data-sym="4" onclick="setCSymmetry(4)">C4</button>
+        </div>
+      </div>
+      <div class="field" style="margin-top:6px">
+        <label>Custom order</label>
+        <input type="number" id="sym-custom" value="1" min="1" max="36" step="1"
+               oninput="setCSymmetry(Math.max(1,Math.min(36,+this.value||1)))">
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:6px;line-height:1.5">
+        Mask is automatically symmetrized after each stroke. Dashed spokes show the symmetry axes.
+      </div>
+      <button class="btn" style="width:100%;justify-content:center;margin-top:8px"
+              onclick="pushUndoState();applyCSymmetry();markMaskDirty();render();schedulePreview();toast('Symmetry applied','success')">
+        ↻ Re-apply to current mask
+      </button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr open" onclick="togglePanel(this)">
+      <div class="panel-dot"></div> Slice Navigation <span class="chevron">▶</span>
+    </div>
+    <div class="panel-body open">
+      <div class="field">
+        <label>View axis (cross-section)</label>
+        <div class="axis-group">
+          <button class="axis-btn active" data-view="0" onclick="setViewAxis(0)">XY</button>
+          <button class="axis-btn" data-view="1" onclick="setViewAxis(1)">XZ</button>
+          <button class="axis-btn" data-view="2" onclick="setViewAxis(2)">YZ</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Slice index <span class="unit" id="slice-max-lbl">/ 0</span></label>
+        <input type="range" id="slice-slider" min="0" max="0" value="0"
+               oninput="sliceIndex=+this.value;document.getElementById('slice-idx-val').textContent=this.value;fetchSlice()">
+        <div style="display:flex;justify-content:space-between;margin-top:2px">
+          <span style="font-size:10px;color:var(--text-dim)">0</span>
+          <span class="range-val" id="slice-idx-val">0</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Contrast range</label>
+        <div class="range-row">
+          <label style="font-size:10px;color:var(--text-dim);min-width:26px">Low</label>
+          <input type="range" id="contrast-low" min="0" max="49" value="2"
+                 oninput="contrastLow=+this.value;document.getElementById('cl-val').textContent=this.value+'%';fetchSlice()">
+          <span class="range-val" id="cl-val">2%</span>
+        </div>
+        <div class="range-row" style="margin-top:4px">
+          <label style="font-size:10px;color:var(--text-dim);min-width:26px">High</label>
+          <input type="range" id="contrast-high" min="51" max="100" value="98"
+                 oninput="contrastHigh=+this.value;document.getElementById('ch-val').textContent=this.value+'%';fetchSlice()">
+          <span class="range-val" id="ch-val">98%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</aside>
+
+<!-- ════ MAIN CANVAS ════════════════════════════════════════ -->
+<main class="main-area">
+  <div class="toolbar">
+    <div class="toolbar-group">
+      <button class="tb-btn active" id="tb-brush" onclick="setTool('brush')">✏ Brush</button>
+      <button class="tb-btn" id="tb-eraser" onclick="setTool('eraser')">◻ Erase</button>
+      <button class="tb-btn" id="tb-polygon" onclick="setTool('polygon')">⬡ Poly</button>
+      <button class="tb-btn" id="tb-fill" onclick="setTool('fill')">⬛ Fill</button>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <button class="tb-btn" onclick="undo()">↩ Undo</button>
+      <button class="tb-btn" onclick="redo()">↪ Redo</button>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <button class="tb-btn" onclick="resetView()">⊹ Fit</button>
+      <button class="tb-btn" onclick="changeZoom(1.25)">＋</button>
+      <span class="zoom-display" id="zoom-display">100%</span>
+      <button class="tb-btn" onclick="changeZoom(0.8)">－</button>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group" style="margin-left:auto">
+      <button class="tb-btn" onclick="requestPreview()">↻ Preview</button>
+    </div>
+  </div>
+
+  <div class="canvas-container" id="canvas-container">
+    <div class="canvas-drop-hint" id="drop-hint">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+        <ellipse cx="12" cy="12" rx="10" ry="4"/>
+        <path d="M2 12c0 4 4.5 8 10 8s10-4 10-8"/>
+        <path d="M12 2v20M2 12h20" opacity=".3"/>
+      </svg>
+      <p>Load an MRC/MRCS file<br>from the sidebar to begin</p>
+    </div>
+    <canvas id="main-canvas"></canvas>
+  </div>
+
+  <div class="status-bar">
+    <div class="sb-item">Pos: <span class="sb-val" id="sb-pos">—</span></div>
+    <div class="sb-item">Zoom: <span class="sb-val" id="sb-zoom">100%</span></div>
+    <div class="sb-item">Tool: <span class="sb-val" id="sb-tool">Brush</span></div>
+    <div class="sb-item" style="margin-left:auto">Helix: <span class="sb-val" id="sb-helix">—</span></div>
+  </div>
+</main>
+
+<!-- ════ RIGHT PANEL ════════════════════════════════════════ -->
+<aside class="preview-panel">
+  <div class="preview-hdr"><div class="dot"></div> Symmetry Preview</div>
+  <div class="preview-scroll">
+    <button class="btn update-preview-btn" onclick="requestPreview()">↻ Update Preview</button>
+    <div id="preview-busy" class="preview-busy" style="display:none">
+      <div class="spinner"></div> Computing…
+    </div>
+    <div class="preview-label">Side view (along helix)</div>
+    <div class="preview-img-wrap" id="prev-side">
+      <div class="preview-placeholder" style="aspect-ratio:1.5">Awaiting draw</div>
+    </div>
+    <div class="preview-label">Cross-sections</div>
+    <div class="preview-grid">
+      <div class="preview-img-wrap" id="prev-z25"><div class="preview-placeholder">25%</div></div>
+      <div class="preview-img-wrap" id="prev-z50"><div class="preview-placeholder">50%</div></div>
+      <div class="preview-img-wrap" id="prev-z75"><div class="preview-placeholder">75%</div></div>
+    </div>
+    <div class="preview-label">Statistics</div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Volume fraction</div><div class="stat-value" id="stat-volfrac">—</div></div>
+      <div class="stat-card"><div class="stat-label">Mask voxels</div><div class="stat-value" id="stat-voxels">—</div></div>
+      <div class="stat-card"><div class="stat-label">Rise (px)</div><div class="stat-value" id="stat-rise">—</div></div>
+      <div class="stat-card"><div class="stat-label">Edge (px)</div><div class="stat-value" id="stat-edge">—</div></div>
+    </div>
+  </div>
+  <div class="export-panel">
+    <div class="field">
+      <label>Output filename</label>
+      <input type="text" id="export-name" value="helical_mask" placeholder="helical_mask">
+    </div>
+    <button class="btn btn-accent" id="btn-export" onclick="exportMask()">
+      ⬇ Generate &amp; Download 3D Mask
+    </button>
+    <div class="export-progress" id="export-progress">
+      <div class="export-progress-bar" id="export-bar"></div>
+      <div class="export-progress-text" id="export-text">Computing…</div>
+    </div>
+  </div>
+</aside>
+
+</div><!-- /app-body -->
+
+<!-- ── Shortcuts modal ──────────────────────────────────────── -->
+<div class="modal-overlay" id="shortcuts-modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <h2>⌨ Keyboard Shortcuts</h2>
+    <div class="shortcut-grid">
+      <div>
+        <div class="sc-row"><div class="sc-keys"><kbd>B</kbd></div><span class="sc-desc">Brush tool</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>E</kbd></div><span class="sc-desc">Eraser tool</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>P</kbd></div><span class="sc-desc">Polygon tool</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>F</kbd></div><span class="sc-desc">Flood fill</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>Ctrl</kbd><kbd>Z</kbd></div><span class="sc-desc">Undo</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>Ctrl</kbd><kbd>Y</kbd></div><span class="sc-desc">Redo</span></div>
+      </div>
+      <div>
+        <div class="sc-row"><div class="sc-keys"><kbd>[</kbd></div><span class="sc-desc">Smaller brush</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>]</kbd></div><span class="sc-desc">Larger brush</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>Scroll</kbd></div><span class="sc-desc">Brush size</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>Ctrl+Scroll</kbd></div><span class="sc-desc">Zoom</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>Alt+drag</kbd></div><span class="sc-desc">Pan view</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>Del</kbd></div><span class="sc-desc">Clear mask</span></div>
+        <div class="sc-row"><div class="sc-keys"><kbd>Esc</kbd></div><span class="sc-desc">Cancel polygon</span></div>
+      </div>
+    </div>
+    <button class="btn btn-accent" onclick="closeModal()" style="width:100%;justify-content:center">Close</button>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     JAVASCRIPT — everything runs in-browser, no server needed
+══════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════════════
+// WEB WORKER  — all heavy computation (EDT, rotation, helical sym)
+// ════════════════════════════════════════════════════════════════
+
+const WORKER_SRC = `
+'use strict';
+const WINF = 1e20;
+
+// ── 1-D Euclidean Distance Transform (Felzenszwalb-Huttenlocher) ──
+// f[i] = 0 at mask voxels, WINF elsewhere (or squared distances from a prior pass).
+// Returns squared distances to the nearest feature.
+function edt1D(f, n) {
+  const d = new Float64Array(n);
+  const v = new Int32Array(n);
+  const z = new Float64Array(n + 1);
+  let k = -1;
+  for (let q = 0; q < n; q++) {
+    if (f[q] >= WINF * 0.5) continue;          // skip non-features
+    if (k < 0) {                                // first feature found
+      k = 0; v[0] = q; z[0] = -WINF; z[1] = WINF;
+    } else {
+      let s = ((f[q] + q*q) - (f[v[k]] + v[k]*v[k])) / (2.0 * (q - v[k]));
+      while (k > 0 && s <= z[k]) {
+        k--;
+        s = ((f[q] + q*q) - (f[v[k]] + v[k]*v[k])) / (2.0 * (q - v[k]));
+      }
+      k++; v[k] = q; z[k] = s; z[k+1] = WINF;
+    }
+  }
+  if (k < 0) { d.fill(WINF); return d; }       // no features → all infinity
+  let j = 0;
+  for (let q = 0; q < n; q++) {
+    while (j < k && z[j+1] < q) j++;
+    d[q] = (q - v[j]) * (q - v[j]) + f[v[j]];
+  }
+  return d;
+}
+
+// ── 3-D separable EDT (3 passes: X → Y → Z) ──────────────────────
+function edt3D(binary, nz, ny, nx) {
+  const size = nz * ny * nx;
+  // Pass 1: X
+  const tmp1 = new Float64Array(size);
+  const rowX = new Float64Array(nx);
+  for (let z = 0; z < nz; z++) {
+    for (let y = 0; y < ny; y++) {
+      const base = (z * ny + y) * nx;
+      for (let x = 0; x < nx; x++) rowX[x] = binary[base + x] > 0.5 ? 0 : WINF;
+      const d = edt1D(rowX, nx);
+      for (let x = 0; x < nx; x++) tmp1[base + x] = d[x];
+    }
+  }
+  // Pass 2: Y
+  const tmp2 = new Float64Array(size);
+  const rowY = new Float64Array(ny);
+  for (let z = 0; z < nz; z++) {
+    for (let x = 0; x < nx; x++) {
+      for (let y = 0; y < ny; y++) rowY[y] = tmp1[(z * ny + y) * nx + x];
+      const d = edt1D(rowY, ny);
+      for (let y = 0; y < ny; y++) tmp2[(z * ny + y) * nx + x] = d[y];
+    }
+  }
+  // Pass 3: Z  → take sqrt → Euclidean distance
+  const dist = new Float32Array(size);
+  const rowZ = new Float64Array(nz);
+  for (let y = 0; y < ny; y++) {
+    for (let x = 0; x < nx; x++) {
+      for (let z = 0; z < nz; z++) rowZ[z] = tmp2[(z * ny + y) * nx + x];
+      const d = edt1D(rowZ, nz);
+      for (let z = 0; z < nz; z++)
+        dist[(z * ny + y) * nx + x] = d[z] < WINF * 0.5 ? Math.sqrt(d[z]) : WINF;
+    }
+  }
+  return dist;   // Euclidean distance from each non-mask voxel to nearest mask voxel
+}
+
+// ── 2-D bilinear rotation (inverse mapping, scipy-compatible CCW) ─
+function rotate2D(src, w, h, angleDeg) {
+  const dst = new Float32Array(w * h);
+  const rad = angleDeg * Math.PI / 180;
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  const cx = w * 0.5, cy = h * 0.5;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dx = x - cx, dy = y - cy;
+      const sx = cos * dx + sin * dy + cx;
+      const sy = -sin * dx + cos * dy + cy;
+      const x0 = Math.floor(sx), y0 = Math.floor(sy);
+      if (x0 < 0 || x0 >= w - 1 || y0 < 0 || y0 >= h - 1) continue;
+      const fx = sx - x0, fy = sy - y0;
+      dst[y * w + x] =
+        (1-fx)*(1-fy)*src[y0*w + x0]     + fx*(1-fy)*src[y0*w + x0+1] +
+        (1-fx)*fy    *src[(y0+1)*w + x0] + fx*fy    *src[(y0+1)*w + x0+1];
+    }
+  }
+  return dst;
+}
+
+// ── Apply helical symmetry to a 2-D cross-section mask ────────────
+// Produces a 3-D mask by rotating the 2-D mask at each position along
+// the helix axis by the corresponding accumulated twist angle.
+function applyHelicalSymmetry(mask2d, mW, mH, shape, risePx, twistDeg, helixAxis) {
+  const [nz, ny, nx] = shape;
+  const mask3d = new Float32Array(nz * ny * nx);
+  if (helixAxis === 2) {                    // helix along Z, cross-section = XY
+    const cz = nz / 2;
+    for (let z = 0; z < nz; z++) {
+      const rot = rotate2D(mask2d, mW, mH, risePx ? (z - cz) / risePx * twistDeg : 0);
+      mask3d.set(rot, z * ny * nx);
+    }
+  } else if (helixAxis === 1) {            // helix along Y, cross-section = XZ
+    const cy = ny / 2;
+    for (let y = 0; y < ny; y++) {
+      const rot = rotate2D(mask2d, mW, mH, risePx ? (y - cy) / risePx * twistDeg : 0);
+      // rot is indexed [z * nx + x] (mW=nx, mH=nz)
+      for (let z = 0; z < nz; z++)
+        for (let x = 0; x < nx; x++)
+          mask3d[(z * ny + y) * nx + x] = rot[z * nx + x];
+    }
+  } else {                                 // helix along X, cross-section = YZ
+    const cx = nx / 2;
+    for (let x = 0; x < nx; x++) {
+      const rot = rotate2D(mask2d, mW, mH, risePx ? (x - cx) / risePx * twistDeg : 0);
+      // rot is indexed [z * ny + y] (mW=ny, mH=nz)
+      for (let z = 0; z < nz; z++)
+        for (let y = 0; y < ny; y++)
+          mask3d[(z * ny + y) * nx + x] = rot[z * ny + y];
+    }
+  }
+  return mask3d;
+}
+
+// ── Cosine soft edge ─────────────────────────────────────────────
+function applySoftEdge(mask3d, nz, ny, nx, edgePx) {
+  if (edgePx <= 0) return mask3d;
+  const dist = edt3D(mask3d, nz, ny, nx);
+  const result = new Float32Array(mask3d.length);
+  const n = nz * ny * nx;
+  for (let i = 0; i < n; i++) {
+    if (mask3d[i] > 0.5)         result[i] = 1.0;
+    else if (dist[i] <= edgePx)  result[i] = 0.5 * (1 + Math.cos(Math.PI * dist[i] / edgePx));
+  }
+  return result;
+}
+
+// ── Bilinear 2-D downsample ──────────────────────────────────────
+function downsample2D(src, sw, sh, dw, dh) {
+  const dst = new Float32Array(dw * dh);
+  const rx = sw / dw, ry = sh / dh;
+  for (let y = 0; y < dh; y++) {
+    const sy = (y + 0.5) * ry - 0.5;
+    const y0 = Math.max(0, Math.min(sh-1, Math.floor(sy)));
+    const y1 = Math.min(sh-1, y0 + 1), fy = sy - y0;
+    for (let x = 0; x < dw; x++) {
+      const sx = (x + 0.5) * rx - 0.5;
+      const x0 = Math.max(0, Math.min(sw-1, Math.floor(sx)));
+      const x1 = Math.min(sw-1, x0 + 1), fx = sx - x0;
+      dst[y*dw+x] = (1-fy)*(1-fx)*src[y0*sw+x0] + (1-fy)*fx*src[y0*sw+x1]
+                  +    fy *(1-fx)*src[y1*sw+x0] +    fy *fx*src[y1*sw+x1];
+    }
+  }
+  return dst;
+}
+
+// ── Extract a 2-D slice from a 3-D array ────────────────────────
+// viewAxis: 0=XY(Z-slice h=ny,w=nx), 1=XZ(Y-slice h=nz,w=nx), 2=YZ(X-slice h=nz,w=ny)
+function getSlice3D(data, nz, ny, nx, viewAxis, index) {
+  if (viewAxis === 0) {
+    const sl = new Float32Array(ny * nx);
+    for (let i = 0; i < ny*nx; i++) sl[i] = data[index*ny*nx + i];
+    return {slice: sl, w: nx, h: ny};
+  } else if (viewAxis === 1) {
+    const sl = new Float32Array(nz * nx);
+    for (let z = 0; z < nz; z++)
+      for (let x = 0; x < nx; x++)
+        sl[z*nx+x] = data[(z*ny + index)*nx + x];
+    return {slice: sl, w: nx, h: nz};
+  } else {
+    const sl = new Float32Array(nz * ny);
+    for (let z = 0; z < nz; z++)
+      for (let y = 0; y < ny; y++)
+        sl[z*ny+y] = data[(z*ny + y)*nx + index];
+    return {slice: sl, w: ny, h: nz};
+  }
+}
+
+// ── MRC file writer ──────────────────────────────────────────────
+function writeMRC(data, nz, ny, nx, apix) {
+  const hSz = 1024;
+  const buf = new ArrayBuffer(hSz + data.byteLength);
+  const v = new DataView(buf);
+  // Dimensions
+  v.setInt32(0,  nx, true); v.setInt32(4,  ny, true); v.setInt32(8,  nz, true);
+  v.setInt32(12, 2,  true); // MODE=2 (float32)
+  // Grid sampling = dimensions
+  v.setInt32(28, nx, true); v.setInt32(32, ny, true); v.setInt32(36, nz, true);
+  // Cell dimensions in Å
+  v.setFloat32(40, nx*apix, true); v.setFloat32(44, ny*apix, true); v.setFloat32(48, nz*apix, true);
+  // Cell angles = 90°
+  v.setFloat32(52, 90, true); v.setFloat32(56, 90, true); v.setFloat32(60, 90, true);
+  // Axis mapping MAPC=1, MAPR=2, MAPS=3
+  v.setInt32(64, 1, true); v.setInt32(68, 2, true); v.setInt32(72, 3, true);
+  // Min / max / mean
+  let mn=1e30, mx=-1e30, sm=0;
+  for (let i=0; i<data.length; i++) {
+    if (data[i]<mn) mn=data[i]; if (data[i]>mx) mx=data[i]; sm+=data[i];
+  }
+  v.setFloat32(76, mn, true); v.setFloat32(80, mx, true); v.setFloat32(84, sm/data.length, true);
+  // MAP identifier + machine stamp (little-endian)
+  v.setUint8(208,77); v.setUint8(209,65); v.setUint8(210,80); v.setUint8(211,32);
+  v.setUint8(212,0x44); v.setUint8(213,0x41);
+  // Copy voxel data
+  new Float32Array(buf, hSz).set(data);
+  return buf;
+}
+
+// ── Worker message handler ───────────────────────────────────────
+self.onmessage = ({data: msg}) => {
+  try {
+    if (msg.type === 'preview') {
+      const {id, mask2d, maskW, maskH, shape, risePx, twistDeg, helixAxis, edgePx} = msg;
+      const [nz, ny, nx] = shape;
+      const MAX = 96;
+      const sc = Math.min(1, MAX / Math.max(nz, ny, nx));
+
+      let wMask, wW, wH, wShape, wRise, wEdge;
+      if (sc < 1) {
+        const dnz = Math.max(1, Math.round(nz*sc));
+        const dny = Math.max(1, Math.round(ny*sc));
+        const dnx = Math.max(1, Math.round(nx*sc));
+        wShape = [dnz, dny, dnx];
+        wRise = risePx * sc; wEdge = edgePx * sc;
+        if      (helixAxis === 2) { wW = dnx; wH = dny; }
+        else if (helixAxis === 1) { wW = dnx; wH = dnz; }
+        else                      { wW = dny; wH = dnz; }
+        wMask = downsample2D(mask2d, maskW, maskH, wW, wH);
+      } else {
+        wMask = mask2d; wW = maskW; wH = maskH;
+        wShape = shape; wRise = risePx; wEdge = edgePx;
+      }
+
+      const [wnz, wny, wnx] = wShape;
+      const m3   = applyHelicalSymmetry(wMask, wW, wH, wShape, wRise, twistDeg, helixAxis);
+      const soft = applySoftEdge(m3, wnz, wny, wnx, wEdge);
+
+      // Build preview slices (side view + 3 cross-sections)
+      const slices = {};
+      if (helixAxis === 2) {
+        slices.side = getSlice3D(soft, wnz, wny, wnx, 1, Math.floor(wny/2));
+        for (const [fr, key] of [[.25,'z25'],[.5,'z50'],[.75,'z75']]) {
+          const z = Math.max(0, Math.min(wnz-1, Math.round(fr*wnz)));
+          slices[key] = getSlice3D(soft, wnz, wny, wnx, 0, z);
+        }
+      } else if (helixAxis === 1) {
+        slices.side = getSlice3D(soft, wnz, wny, wnx, 1, Math.floor(wny/2));
+        for (const [fr, key] of [[.25,'z25'],[.5,'z50'],[.75,'z75']]) {
+          const y = Math.max(0, Math.min(wny-1, Math.round(fr*wny)));
+          slices[key] = getSlice3D(soft, wnz, wny, wnx, 1, y);
+        }
+      } else {
+        slices.side = getSlice3D(soft, wnz, wny, wnx, 2, Math.floor(wnx/2));
+        for (const [fr, key] of [[.25,'z25'],[.5,'z50'],[.75,'z75']]) {
+          const x = Math.max(0, Math.min(wnx-1, Math.round(fr*wnx)));
+          slices[key] = getSlice3D(soft, wnz, wny, wnx, 2, x);
+        }
+      }
+
+      const maskVox = soft.reduce((s,v) => s + (v > 0.5 ? 1 : 0), 0);
+      const stats = {
+        volume_fraction: (maskVox / soft.length * 100).toFixed(2),
+        mask_voxels: maskVox,
+        rise_px:  risePx.toFixed(2),
+        edge_px:  edgePx.toFixed(1),
+      };
+
+      // Transfer buffers zero-copy
+      const transfers = Object.values(slices).map(s => s.slice.buffer);
+      self.postMessage({type:'preview', id, slices, stats}, transfers);
+
+    } else if (msg.type === 'export') {
+      const {id, mask2d, maskW, maskH, shape, risePx, twistDeg, helixAxis, edgePx, apix} = msg;
+      const [nz, ny, nx] = shape;
+
+      self.postMessage({type:'progress', id, pct:10, txt:'Applying helical symmetry…'});
+      const m3 = applyHelicalSymmetry(mask2d, maskW, maskH, shape, risePx, twistDeg, helixAxis);
+
+      self.postMessage({type:'progress', id, pct:55, txt:'Computing soft edge…'});
+      const soft = applySoftEdge(m3, nz, ny, nx, edgePx);
+
+      self.postMessage({type:'progress', id, pct:90, txt:'Writing MRC file…'});
+      const mrcBuf = writeMRC(soft, nz, ny, nx, apix);
+
+      self.postMessage({type:'export', id, buffer: mrcBuf}, [mrcBuf]);
+    }
+  } catch(err) {
+    self.postMessage({type:'error', id: msg.id, message: err.message + '\\n' + (err.stack||'')});
+  }
+};
+`;
+
+// ── Instantiate worker from inline source ───────────────────────
+const _workerBlob = new Blob([WORKER_SRC], {type:'text/javascript'});
+const worker      = new Worker(URL.createObjectURL(_workerBlob));
+
+const _pending = {};
+let _msgId = 0;
+
+worker.onmessage = ({data}) => {
+  if (data.type === 'progress') {
+    const cb = _pending[data.id];
+    if (cb?.onProgress) cb.onProgress(data.pct, data.txt);
+    return;
+  }
+  const cb = _pending[data.id];
+  if (!cb) return;
+  delete _pending[data.id];
+  data.type === 'error' ? cb.reject(new Error(data.message)) : cb.resolve(data);
+};
+worker.onerror = e => { console.error('Worker:', e); toast('Worker error: ' + e.message, 'error'); };
+
+function workerCall(type, payload, onProgress) {
+  return new Promise((resolve, reject) => {
+    const id = ++_msgId;
+    _pending[id] = {resolve, reject, onProgress};
+    const transfers = payload.mask2d instanceof Float32Array ? [payload.mask2d.buffer] : [];
+    worker.postMessage({type, id, ...payload}, transfers);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+// MRC READER  (runs in main thread — fast binary parse)
+// ════════════════════════════════════════════════════════════════
+
+function parseMRC(buffer) {
+  const v  = new DataView(buffer);
+  const nx = v.getInt32(0, true);
+  const ny = v.getInt32(4, true);
+  const nz = v.getInt32(8, true);
+  if (nx <= 0 || ny <= 0 || nz <= 0) throw new Error('Invalid MRC dimensions');
+  const mode    = v.getInt32(12, true);
+  const nsymbt  = Math.max(0, v.getInt32(92, true));
+  const cellAx  = v.getFloat32(40, true);
+  const apix    = cellAx > 0 ? cellAx / nx : 1.0;
+  const dataOff = 1024 + nsymbt;
+  const n = nx * ny * nz;
+
+  let data;
+  switch (mode) {
+    case 0:  // uint8
+      data = new Float32Array(n);
+      for (let i = 0; i < n; i++) data[i] = v.getUint8(dataOff + i);
+      break;
+    case 1:  // int16
+      data = new Float32Array(n);
+      for (let i = 0; i < n; i++) data[i] = v.getInt16(dataOff + i*2, true);
+      break;
+    case 2:  // float32
+      if (dataOff + n*4 > buffer.byteLength) throw new Error('File truncated for declared dimensions');
+      data = new Float32Array(buffer.slice(dataOff, dataOff + n*4));
+      break;
+    case 6:  // uint16
+      data = new Float32Array(n);
+      for (let i = 0; i < n; i++) data[i] = v.getUint16(dataOff + i*2, true);
+      break;
+    default: throw new Error(`Unsupported MRC mode: ${mode}`);
+  }
+  return {data, shape: [nz, ny, nx], apix};  // data is (nz,ny,nx) order
+}
+
+// ════════════════════════════════════════════════════════════════
+// VOLUME UTILITIES (main thread)
+// ════════════════════════════════════════════════════════════════
+
+function getVolumeSlice(data, shape, viewAxis, index) {
+  const [nz, ny, nx] = shape;
+  if (viewAxis === 0) {            // XY — h=ny, w=nx
+    const sl = new Float32Array(ny * nx);
+    for (let i = 0; i < ny*nx; i++) sl[i] = data[index*ny*nx + i];
+    return {slice: sl, w: nx, h: ny};
+  } else if (viewAxis === 1) {    // XZ — h=nz, w=nx
+    const sl = new Float32Array(nz * nx);
+    for (let z = 0; z < nz; z++)
+      for (let x = 0; x < nx; x++)
+        sl[z*nx+x] = data[(z*ny + index)*nx + x];
+    return {slice: sl, w: nx, h: nz};
+  } else {                        // YZ — h=nz, w=ny
+    const sl = new Float32Array(nz * ny);
+    for (let z = 0; z < nz; z++)
+      for (let y = 0; y < ny; y++)
+        sl[z*ny+y] = data[(z*ny + y)*nx + index];
+    return {slice: sl, w: ny, h: nz};
+  }
+}
+
+function normalizeSlice(slice, low=2, high=98) {
+  const n = slice.length;
+  const sorted = Float32Array.from(slice).sort();
+  const vmin = sorted[Math.max(0, Math.floor(n * low / 100))];
+  const vmax = sorted[Math.min(n-1, Math.floor(n * high / 100))];
+  const rng  = vmax - vmin + 1e-9;
+  const out  = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = Math.max(0, Math.min(1, (slice[i]-vmin)/rng));
+  return out;
+}
+
+function float32ToCanvas(data, w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  for (let i = 0; i < w*h; i++) {
+    const v = Math.max(0, Math.min(255, Math.round(data[i] * 255)));
+    img.data[i*4]=v; img.data[i*4+1]=v; img.data[i*4+2]=v; img.data[i*4+3]=255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+// ════════════════════════════════════════════════════════════════
+// APP STATE
+// ════════════════════════════════════════════════════════════════
+
+let volData  = null;      // Float32Array (nz·ny·nx)
+let volShape = null;      // [nz, ny, nx]
+let apix     = 1.0;
+let viewAxis  = 0;        // 0=XY, 1=XZ, 2=YZ
+let helixAxis = 2;        // 0=X, 1=Y, 2=Z
+let cSymmetry = 1;
+let sliceIndex   = 0;
+let contrastLow  = 2, contrastHigh = 98;
+let showRings    = false;
+let brushSize    = 15;
+let maskOpacity  = 0.55;
+let activeTool   = 'brush';
+let zoom = 1.0, panX = 0, panY = 0;
+let isPanning = false, panSX = 0, panSY = 0, panStartPX = 0, panStartPY = 0;
+let isDrawing = false, lastVX = -1, lastVY = -1;
+let polygonPoints = [];
+let mouseVX = 0, mouseVY = 0;
+
+let displayCanvas, displayCtx;
+let maskCanvas, maskCtx;
+let maskColorCanvas, maskColorCtx;
+let densityCanvas = null;   // off-screen canvas with current slice
+let maskColorDirty = true;
+let undoStack = [], redoStack = [];
+const MAX_UNDO = 30;
+
+// ── Automask state ───────────────────────────────────────────────
+let automaskData = null;          // Uint8Array | null — computed automask pixels
+let automaskColorCanvas = null;   // canvas for the cyan preview overlay
+let showAutomask = false;
+let automaskPreviewTimer = null;
+
+// ════════════════════════════════════════════════════════════════
+// INITIALISATION
+// ════════════════════════════════════════════════════════════════
+
+window.addEventListener('DOMContentLoaded', () => {
+  displayCanvas = document.getElementById('main-canvas');
+  displayCtx    = displayCanvas.getContext('2d');
+
+  maskCanvas = document.createElement('canvas');
+  maskCanvas.width = 1; maskCanvas.height = 1;
+  maskCtx = maskCanvas.getContext('2d', {willReadFrequently: true});
+
+  maskColorCanvas = document.createElement('canvas');
+  maskColorCanvas.width = 1; maskColorCanvas.height = 1;
+  maskColorCtx = maskColorCanvas.getContext('2d');
+
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  bindEvents();
+  setupUpload();
+  render();
+  document.getElementById('sb-helix').textContent = 'Load a volume to begin';
+});
+
+function resizeCanvas() {
+  const c = document.getElementById('canvas-container');
+  displayCanvas.width  = c.clientWidth;
+  displayCanvas.height = c.clientHeight;
+  render();
+}
+
+// ════════════════════════════════════════════════════════════════
+// FILE LOADING  (reads MRC directly — no server)
+// ════════════════════════════════════════════════════════════════
+
+function setupUpload() {
+  const zone = document.getElementById('upload-zone');
+  const inp  = document.getElementById('file-input');
+  zone.addEventListener('click', () => inp.click());
+  inp.addEventListener('change', e => { if (e.target.files[0]) loadMRCFile(e.target.files[0]); });
+  zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', ()  => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) loadMRCFile(e.dataTransfer.files[0]);
+  });
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    if (e.dataTransfer.files[0]) loadMRCFile(e.dataTransfer.files[0]);
+  });
+}
+
+function loadMRCFile(file) {
+  if (!file.name.match(/\.(mrc|mrcs)$/i)) { toast('Please drop an .mrc or .mrcs file', 'warning'); return; }
+  toast('Loading ' + file.name + '…', 'info');
+  document.getElementById('vol-badge').textContent = 'Loading…';
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const parsed = parseMRC(e.target.result);
+      volData  = parsed.data;
+      volShape = parsed.shape;
+      apix     = parsed.apix;
+
+      const [nz, ny, nx] = volShape;
+      const badge = document.getElementById('vol-badge');
+      badge.textContent = `${file.name} | ${nx}×${ny}×${nz} px | ${apix.toFixed(3)} Å/px`;
+      badge.className = 'vol-badge loaded';
+
+      document.getElementById('vol-info').classList.add('visible');
+      const sn = file.name.length > 18 ? file.name.slice(0,15)+'…' : file.name;
+      document.getElementById('vi-name').textContent    = sn;
+      document.getElementById('vi-dims').textContent    = `${nx}×${ny}×${nz}`;
+      document.getElementById('vi-apix').textContent    = apix.toFixed(4)+' Å';
+      document.getElementById('vi-boxsize').textContent = (nx*apix).toFixed(1)+' Å';
+
+      viewAxis = 0;
+      sliceIndex = Math.floor(nz / 2);
+      document.querySelectorAll('.axis-btn[data-view]').forEach(b =>
+        b.classList.toggle('active', +b.dataset.view === 0));
+      document.getElementById('slice-slider').max   = nz - 1;
+      document.getElementById('slice-slider').value = sliceIndex;
+      document.getElementById('slice-max-lbl').textContent = '/ ' + (nz-1);
+      document.getElementById('slice-idx-val').textContent = sliceIndex;
+      document.getElementById('sb-helix').textContent =
+        `Rise=${document.getElementById('p-rise').value}Å  Twist=${document.getElementById('p-twist').value}°  Axis=Z`;
+
+      initMaskCanvas();
+      updateDensitySlice();
+      document.getElementById('drop-hint').style.display = 'none';
+      toast('Loaded: ' + file.name, 'success');
+    } catch(err) {
+      toast('Parse error: ' + err.message, 'error');
+      document.getElementById('vol-badge').textContent = 'Load failed';
+    }
+  };
+  reader.onerror = () => toast('Failed to read file', 'error');
+  reader.readAsArrayBuffer(file);
+}
+
+// ════════════════════════════════════════════════════════════════
+// DENSITY SLICE
+// ════════════════════════════════════════════════════════════════
+
+function fetchSlice() {   // called by inline oninput handlers in the HTML
+  if (!volData) return;
+  clearAutomask();
+  updateDensitySlice();
+}
+
+function updateDensitySlice() {
+  if (!volData) return;
+  const {slice, w, h} = getVolumeSlice(volData, volShape, viewAxis, sliceIndex);
+  const norm = normalizeSlice(slice, contrastLow, contrastHigh);
+  densityCanvas = float32ToCanvas(norm, w, h);
+  render();
+}
+
+// ════════════════════════════════════════════════════════════════
+// MASK CANVAS
+// ════════════════════════════════════════════════════════════════
+
+function getSliceDimensions() {
+  if (!volShape) return {w:1, h:1};
+  const [nz, ny, nx] = volShape;
+  if (viewAxis === 0) return {w:nx, h:ny};
+  if (viewAxis === 1) return {w:nx, h:nz};
+  return {w:ny, h:nz};
+}
+
+function initMaskCanvas() {
+  const {w, h} = getSliceDimensions();
+  maskCanvas.width = w; maskCanvas.height = h;
+  maskCtx.fillStyle = '#000';
+  maskCtx.fillRect(0, 0, w, h);
+  maskColorCanvas.width = w; maskColorCanvas.height = h;
+  markMaskDirty();
+  undoStack = []; redoStack = [];
+}
+
+// ════════════════════════════════════════════════════════════════
+// EVENT BINDING
+// ════════════════════════════════════════════════════════════════
+
+function bindEvents() {
+  displayCanvas.addEventListener('mousedown',  onMouseDown);
+  displayCanvas.addEventListener('mousemove',  onMouseMove);
+  displayCanvas.addEventListener('mouseup',    onMouseUp);
+  displayCanvas.addEventListener('mouseleave', () => { isDrawing=false; lastVX=-1; render(); });
+  displayCanvas.addEventListener('wheel',      onWheel, {passive:false});
+  displayCanvas.addEventListener('dblclick',   onDblClick);
+  displayCanvas.addEventListener('contextmenu', e => { e.preventDefault(); if(activeTool==='polygon') cancelPolygon(); });
+  document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('mouseup', () => { isPanning = false; });
+}
+
+function onMouseDown(e) {
+  e.preventDefault();
+  const {vx, vy, inside} = getVoxelCoords(e);
+  if (e.button===1 || (e.button===0 && e.altKey)) {
+    isPanning=true; panSX=e.clientX; panSY=e.clientY; panStartPX=panX; panStartPY=panY; return;
+  }
+  if (e.button!==0 || !volShape || !inside) return;
+  if (activeTool==='fill') {
+    pushUndoState(); floodFill(vx,vy,true); applyCSymmetry(); markMaskDirty(); render(); schedulePreview(); return;
+  }
+  if (activeTool==='polygon') { polygonPoints.push({vx,vy}); render(); return; }
+  pushUndoState(); isDrawing=true; lastVX=vx; lastVY=vy;
+  paintAt(vx,vy,brushSize,activeTool==='eraser'); markMaskDirty(); render();
+}
+
+function onMouseMove(e) {
+  const {vx, vy, inside} = getVoxelCoords(e);
+  mouseVX=vx; mouseVY=vy;
+  if (isPanning) {
+    panX = panStartPX + (e.clientX-panSX); panY = panStartPY + (e.clientY-panSY);
+    render(); return;
+  }
+  if (inside && volShape)
+    document.getElementById('sb-pos').textContent = `${Math.round(vx)}, ${Math.round(vy)}`;
+  if (!isDrawing || !volShape || !inside) { render(); return; }
+  if (activeTool==='brush'||activeTool==='eraser') {
+    const erase = activeTool==='eraser';
+    if (lastVX>=0) drawLineVoxels(lastVX,lastVY,vx,vy,brushSize,erase);
+    else paintAt(vx,vy,brushSize,erase);
+    lastVX=vx; lastVY=vy; markMaskDirty(); render();
+  }
+}
+
+function onMouseUp(e) {
+  if (e.button===1) { isPanning=false; return; }
+  if (isDrawing) { isDrawing=false; lastVX=-1; applyCSymmetry(); schedulePreview(); }
+}
+
+function onDblClick(e) {
+  if (activeTool==='polygon' && polygonPoints.length>=3) {
+    pushUndoState(); closePolygon(); applyCSymmetry(); markMaskDirty(); render(); schedulePreview();
+  }
+}
+
+function onWheel(e) {
+  e.preventDefault();
+  if (e.ctrlKey||e.metaKey) {
+    const f = e.deltaY > 0 ? 0.85 : 1.18;
+    const nz2 = Math.max(0.1, Math.min(20, zoom*f));
+    const rect = displayCanvas.getBoundingClientRect();
+    const mx = e.clientX-rect.left, my = e.clientY-rect.top;
+    panX = mx - (mx-panX)*(nz2/zoom); panY = my - (my-panY)*(nz2/zoom);
+    zoom = nz2;
+    document.getElementById('zoom-display').textContent = Math.round(zoom*100)+'%';
+    document.getElementById('sb-zoom').textContent      = Math.round(zoom*100)+'%';
+  } else {
+    const step = e.shiftKey ? 5 : 2;
+    brushSize = Math.max(1, Math.min(200, brushSize+(e.deltaY>0?-step:step)));
+    document.getElementById('brush-size').value = Math.min(brushSize, 80);
+    document.getElementById('brush-size-val').textContent = brushSize;
+  }
+  render();
+}
+
+function onKeyDown(e) {
+  if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+  switch(e.key) {
+    case 'b': case 'B': setTool('brush');   break;
+    case 'e': case 'E': setTool('eraser');  break;
+    case 'p': case 'P': setTool('polygon'); break;
+    case 'f': case 'F': setTool('fill');    break;
+    case 'Delete':  clearMask();       break;
+    case 'Escape':  cancelPolygon();   break;
+    case '[':
+      brushSize = Math.max(1, brushSize-3);
+      document.getElementById('brush-size').value = Math.min(brushSize,80);
+      document.getElementById('brush-size-val').textContent = brushSize;
+      render(); break;
+    case ']':
+      brushSize = Math.min(200, brushSize+3);
+      document.getElementById('brush-size').value = Math.min(brushSize,80);
+      document.getElementById('brush-size-val').textContent = brushSize;
+      render(); break;
+    default:
+      if (e.ctrlKey||e.metaKey) {
+        if (e.key==='z')                    { e.preventDefault(); undo(); }
+        if (e.key==='y'||e.key==='Z')       { e.preventDefault(); redo(); }
+      }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// COORDINATE MAPPING
+// ════════════════════════════════════════════════════════════════
+
+function getTransform() {
+  const {w,h} = getSliceDimensions();
+  const cw=displayCanvas.width, ch=displayCanvas.height;
+  const fitScale   = Math.min(cw/w, ch/h) * 0.92;
+  const totalScale = fitScale * zoom;
+  return {scale: totalScale, offsetX: (cw-w*totalScale)/2+panX, offsetY: (ch-h*totalScale)/2+panY};
+}
+
+function getVoxelCoords(e) {
+  const rect = displayCanvas.getBoundingClientRect();
+  const {scale,offsetX,offsetY} = getTransform();
+  const vx = (e.clientX-rect.left-offsetX)/scale;
+  const vy = (e.clientY-rect.top -offsetY)/scale;
+  const {w,h} = getSliceDimensions();
+  return {vx, vy, inside: vx>=0&&vx<w&&vy>=0&&vy<h};
+}
+
+// ════════════════════════════════════════════════════════════════
+// DRAWING
+// ════════════════════════════════════════════════════════════════
+
+function paintAt(vx,vy,r,erase) {
+  maskCtx.fillStyle = erase ? '#000' : '#fff';
+  maskCtx.beginPath(); maskCtx.arc(vx,vy,r,0,Math.PI*2); maskCtx.fill();
+}
+
+function drawLineVoxels(x0,y0,x1,y1,r,erase) {
+  const dist = Math.hypot(x1-x0,y1-y0);
+  const steps = Math.max(1, Math.ceil(dist/(r*0.35)));
+  for (let i=0; i<=steps; i++) {
+    const t=i/steps;
+    paintAt(x0+(x1-x0)*t, y0+(y1-y0)*t, r, erase);
+  }
+}
+
+function closePolygon() {
+  if (polygonPoints.length<3) return;
+  maskCtx.fillStyle = activeTool==='eraser' ? '#000' : '#fff';
+  maskCtx.beginPath(); maskCtx.moveTo(polygonPoints[0].vx, polygonPoints[0].vy);
+  for (let i=1; i<polygonPoints.length; i++) maskCtx.lineTo(polygonPoints[i].vx, polygonPoints[i].vy);
+  maskCtx.closePath(); maskCtx.fill();
+  polygonPoints = [];
+}
+
+function cancelPolygon() { polygonPoints=[]; render(); }
+
+function floodFill(startX,startY,fillVal) {
+  startX=Math.floor(startX); startY=Math.floor(startY);
+  const {w,h}=getSliceDimensions();
+  if (startX<0||startX>=w||startY<0||startY>=h) return;
+  const id=maskCtx.getImageData(0,0,w,h), px=id.data;
+  const tgt=px[(startY*w+startX)*4], fill=fillVal?255:0;
+  if (tgt===fill) return;
+  const stack=[[startX,startY]], vis=new Uint8Array(w*h);
+  while(stack.length) {
+    const [x,y]=stack.pop();
+    if (x<0||x>=w||y<0||y>=h) continue;
+    const idx=y*w+x;
+    if (vis[idx]||Math.abs(px[idx*4]-tgt)>64) continue;
+    vis[idx]=1; px[idx*4]=fill; px[idx*4+1]=fill; px[idx*4+2]=fill; px[idx*4+3]=255;
+    stack.push([x+1,y],[x-1,y],[x,y+1],[x,y-1]);
+  }
+  maskCtx.putImageData(id,0,0);
+}
+
+function invertMask() {
+  pushUndoState();
+  const {w,h}=getSliceDimensions();
+  const id=maskCtx.getImageData(0,0,w,h);
+  for (let i=0;i<id.data.length;i+=4) {
+    const v=255-id.data[i]; id.data[i]=v; id.data[i+1]=v; id.data[i+2]=v; id.data[i+3]=255;
+  }
+  maskCtx.putImageData(id,0,0); markMaskDirty(); render(); schedulePreview();
+  toast('Mask inverted','info');
+}
+
+function clearMask() {
+  if (!volShape) return;
+  pushUndoState();
+  const {w,h}=getSliceDimensions();
+  maskCtx.fillStyle='#000'; maskCtx.fillRect(0,0,w,h);
+  markMaskDirty(); render(); schedulePreview();
+}
+
+function applyRadialMask() {
+  if (!volShape) { toast('Load a volume first','warning'); return; }
+  const inner=+document.getElementById('p-inner').value;
+  const outer=+document.getElementById('p-outer').value;
+  if (!outer&&!inner) { toast('Set at least one radius','warning'); return; }
+  pushUndoState();
+  const {w,h}=getSliceDimensions();
+  const cx=w/2,cy=h/2;
+  maskCtx.fillStyle='#000'; maskCtx.fillRect(0,0,w,h);
+  maskCtx.fillStyle='#fff'; maskCtx.beginPath();
+  maskCtx.arc(cx,cy,outer>0?outer/apix:Math.max(w,h),0,Math.PI*2); maskCtx.fill();
+  if (inner>0) {
+    maskCtx.fillStyle='#000'; maskCtx.beginPath();
+    maskCtx.arc(cx,cy,inner/apix,0,Math.PI*2); maskCtx.fill();
+  }
+  applyCSymmetry(); markMaskDirty(); render(); schedulePreview();
+  toast('Ring mask applied','success');
+}
+
+// ════════════════════════════════════════════════════════════════
+// C-SYMMETRY
+// ════════════════════════════════════════════════════════════════
+
+function applyCSymmetry() {
+  if (cSymmetry<=1) return;
+  const {w,h}=getSliceDimensions();
+  const orig=document.createElement('canvas');
+  orig.width=w; orig.height=h;
+  orig.getContext('2d').drawImage(maskCanvas,0,0);
+  maskCtx.fillStyle='#000'; maskCtx.fillRect(0,0,w,h);
+  maskCtx.globalCompositeOperation='lighter';
+  const step=2*Math.PI/cSymmetry;
+  for (let i=0;i<cSymmetry;i++) {
+    maskCtx.save();
+    maskCtx.translate(w/2,h/2); maskCtx.rotate(i*step); maskCtx.translate(-w/2,-h/2);
+    maskCtx.drawImage(orig,0,0); maskCtx.restore();
+  }
+  maskCtx.globalCompositeOperation='source-over';
+  markMaskDirty();
+}
+
+// ════════════════════════════════════════════════════════════════
+// MASK COLOUR CACHE
+// ════════════════════════════════════════════════════════════════
+
+function markMaskDirty() { maskColorDirty=true; }
+
+function updateMaskColor() {
+  if (!maskColorDirty) return;
+  const {w,h}=getSliceDimensions();
+  maskColorCanvas.width=w; maskColorCanvas.height=h;
+  const src=maskCtx.getImageData(0,0,w,h);
+  const dst=maskColorCtx.createImageData(w,h);
+  for (let i=0;i<src.data.length;i+=4) {
+    dst.data[i]=0xDB; dst.data[i+1]=0x9D; dst.data[i+2]=0x47;
+    dst.data[i+3]=Math.round(src.data[i]*maskOpacity);
+  }
+  maskColorCtx.putImageData(dst,0,0);
+  maskColorDirty=false;
+}
+
+// ════════════════════════════════════════════════════════════════
+// RENDER
+// ════════════════════════════════════════════════════════════════
+
+function render() {
+  const cw=displayCanvas.width, ch=displayCanvas.height;
+  const ctx=displayCtx;
+  ctx.clearRect(0,0,cw,ch); ctx.fillStyle='#060e1a'; ctx.fillRect(0,0,cw,ch);
+  if (!volShape) return;
+  const {w,h}=getSliceDimensions();
+  const {scale,offsetX,offsetY}=getTransform();
+
+  ctx.save(); ctx.translate(offsetX,offsetY); ctx.scale(scale,scale);
+
+  // Density image
+  if (densityCanvas) {
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(densityCanvas,0,0,w,h);
+  }
+
+  // Mask overlay (amber tint)
+  if (maskColorDirty) updateMaskColor();
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(maskColorCanvas,0,0,w,h);
+  ctx.imageSmoothingEnabled=true;
+
+  // Automask preview overlay (cyan — shown on top until applied)
+  if (showAutomask && automaskColorCanvas) {
+    ctx.imageSmoothingEnabled=false;
+    ctx.drawImage(automaskColorCanvas,0,0,w,h);
+    ctx.imageSmoothingEnabled=true;
+  }
+
+  // Crosshair
+  ctx.strokeStyle='rgba(219,157,71,0.2)'; ctx.lineWidth=0.5/scale;
+  ctx.setLineDash([4/scale,4/scale]);
+  ctx.beginPath(); ctx.moveTo(w/2,0); ctx.lineTo(w/2,h); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2);
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // C-symmetry spokes
+  if (cSymmetry>1) {
+    const cx=w/2,cy=h/2,R=Math.max(w,h)*1.5;
+    ctx.strokeStyle='rgba(71,0,36,0.55)'; ctx.lineWidth=0.8/scale; ctx.setLineDash([3/scale,4/scale]);
+    for (let i=0;i<cSymmetry;i++) {
+      const a=i*(2*Math.PI/cSymmetry);
+      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle='rgba(219,157,71,0.55)';
+    ctx.font=`bold ${11/scale}px "Barlow Condensed",sans-serif`;
+    ctx.fillText(`C${cSymmetry}`,cx+4/scale,cy-4/scale);
+  }
+
+  // Radial guide rings
+  if (showRings) {
+    ctx.strokeStyle='rgba(219,157,71,0.7)'; ctx.lineWidth=1.2/scale;
+    const inner=+document.getElementById('p-inner').value;
+    const outer=+document.getElementById('p-outer').value;
+    if (inner>0) {
+      ctx.beginPath(); ctx.arc(w/2,h/2,inner/apix,0,Math.PI*2);
+      ctx.setLineDash([5/scale,3/scale]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (outer>0) { ctx.beginPath(); ctx.arc(w/2,h/2,outer/apix,0,Math.PI*2); ctx.stroke(); }
+  }
+
+  // Polygon preview
+  if (activeTool==='polygon'&&polygonPoints.length>0) {
+    ctx.strokeStyle='#DB9D47'; ctx.lineWidth=1.5/scale; ctx.setLineDash([5/scale,3/scale]);
+    ctx.beginPath(); ctx.moveTo(polygonPoints[0].vx,polygonPoints[0].vy);
+    for (let i=1;i<polygonPoints.length;i++) ctx.lineTo(polygonPoints[i].vx,polygonPoints[i].vy);
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#DB9D47';
+    for (const pt of polygonPoints) { ctx.beginPath(); ctx.arc(pt.vx,pt.vy,3.5/scale,0,Math.PI*2); ctx.fill(); }
+    if (polygonPoints.length>=3) {
+      ctx.strokeStyle='rgba(219,157,71,0.35)'; ctx.beginPath();
+      ctx.moveTo(polygonPoints[polygonPoints.length-1].vx,polygonPoints[polygonPoints.length-1].vy);
+      ctx.lineTo(polygonPoints[0].vx,polygonPoints[0].vy); ctx.stroke();
+    }
+  }
+
+  // Brush cursor
+  if (activeTool==='brush'||activeTool==='eraser') {
+    ctx.strokeStyle=activeTool==='eraser'?'rgba(224,85,85,0.8)':'rgba(219,157,71,0.8)';
+    ctx.lineWidth=1/scale; ctx.beginPath(); ctx.arc(mouseVX,mouseVY,brushSize,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(mouseVX,mouseVY,1.5/scale,0,Math.PI*2);
+    ctx.fillStyle=activeTool==='eraser'?'#e05555':'#DB9D47'; ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// ════════════════════════════════════════════════════════════════
+// UNDO / REDO
+// ════════════════════════════════════════════════════════════════
+
+function pushUndoState() {
+  undoStack.push(maskCanvas.toDataURL());
+  if (undoStack.length>MAX_UNDO) undoStack.shift();
+  redoStack=[];
+}
+
+function undo() {
+  if (!undoStack.length) { toast('Nothing to undo','info'); return; }
+  redoStack.push(maskCanvas.toDataURL());
+  restoreMaskState(undoStack.pop());
+}
+
+function redo() {
+  if (!redoStack.length) { toast('Nothing to redo','info'); return; }
+  undoStack.push(maskCanvas.toDataURL());
+  restoreMaskState(redoStack.pop());
+}
+
+function restoreMaskState(dataURL) {
+  const img=new Image();
+  img.onload=()=>{
+    maskCtx.clearRect(0,0,maskCanvas.width,maskCanvas.height);
+    maskCtx.drawImage(img,0,0);
+    markMaskDirty(); render(); schedulePreview();
+  };
+  img.src=dataURL;
+}
+
+// ════════════════════════════════════════════════════════════════
+// TOOL / AXIS / SYMMETRY SWITCHING
+// ════════════════════════════════════════════════════════════════
+
+function setTool(name) {
+  activeTool=name; polygonPoints=[];
+  ['brush','eraser','polygon','fill'].forEach(t=>{
+    document.getElementById('tool-'+t)?.classList.toggle('active',t===name);
+    document.getElementById('tb-'+t)?.classList.toggle('active',t===name);
+  });
+  document.getElementById('sb-tool').textContent = name[0].toUpperCase()+name.slice(1);
+  displayCanvas.style.cursor = name==='fill' ? 'cell' : 'crosshair';
+  render();
+}
+
+function setCSymmetry(n) {
+  cSymmetry = Math.max(1, Math.min(36, n));
+  document.getElementById('sym-custom').value = cSymmetry;
+  document.querySelectorAll('#sym-btns .axis-btn').forEach(b =>
+    b.classList.toggle('active', +b.dataset.sym===cSymmetry));
+  render();
+  if (cSymmetry>1) toast(`C${cSymmetry} symmetry active — strokes will be symmetrized`,'info');
+}
+
+function setHelixAxis(ax) {
+  helixAxis = ax;
+  document.querySelectorAll('.axis-btn[data-axis]').forEach(b =>
+    b.classList.toggle('active', +b.dataset.axis===ax));
+  const label=['X','Y','Z'][ax];
+  document.getElementById('sb-helix').textContent =
+    `Rise=${document.getElementById('p-rise').value}Å  Twist=${document.getElementById('p-twist').value}°  Axis=${label}`;
+  const viewMap=[2,1,0];
+  const targetView=viewMap[ax];
+  if (volShape && viewAxis!==targetView) {
+    toast(`Helix axis ${label} → drawing on ${['XY','XZ','YZ'][targetView]} plane`,'info');
+    setViewAxis(targetView);
+  }
+}
+
+function setViewAxis(ax) {
+  if (!volShape) { toast('Load a volume first','warning'); return; }
+  viewAxis=ax;
+  document.querySelectorAll('.axis-btn[data-view]').forEach(b =>
+    b.classList.toggle('active', +b.dataset.view===ax));
+  const [nz,ny,nx]=volShape;
+  const maxIdx=[nz,ny,nx][ax]-1;
+  sliceIndex=Math.floor(maxIdx/2);
+  initMaskCanvas();
+  document.getElementById('slice-slider').max   = maxIdx;
+  document.getElementById('slice-slider').value = sliceIndex;
+  document.getElementById('slice-max-lbl').textContent = '/ '+maxIdx;
+  document.getElementById('slice-idx-val').textContent = sliceIndex;
+  updateDensitySlice();
+}
+
+// ════════════════════════════════════════════════════════════════
+// VIEW CONTROLS
+// ════════════════════════════════════════════════════════════════
+
+function resetView() { zoom=1; panX=0; panY=0; render(); }
+
+function changeZoom(f) {
+  zoom=Math.max(0.1,Math.min(20,zoom*f));
+  document.getElementById('zoom-display').textContent = Math.round(zoom*100)+'%';
+  document.getElementById('sb-zoom').textContent      = Math.round(zoom*100)+'%';
+  render();
+}
+
+// ════════════════════════════════════════════════════════════════
+// MASK EXTRACTION (canvas → flat Float32Array)
+// ════════════════════════════════════════════════════════════════
+
+function getMask2DFlat() {
+  const {w,h}=getSliceDimensions();
+  if (w<1||h<1) return null;
+  const id=maskCtx.getImageData(0,0,w,h);
+  const flat=new Float32Array(w*h);
+  for (let i=0;i<w*h;i++) flat[i]=id.data[i*4]>127?1.0:0.0;
+  return {flat, w, h};
+}
+
+// ════════════════════════════════════════════════════════════════
+// PREVIEW  (worker, downsampled)
+// ════════════════════════════════════════════════════════════════
+
+let previewTimer=null;
+
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer=setTimeout(requestPreview,1200);
+}
+
+async function requestPreview() {
+  if (!volShape) return;
+  const md=getMask2DFlat();
+  if (!md) return;
+  document.getElementById('preview-busy').style.display='flex';
+  try {
+    const result=await workerCall('preview', {
+      mask2d:  md.flat,       // buffer transferred to worker
+      maskW:   md.w,
+      maskH:   md.h,
+      shape:   volShape,
+      risePx:  +document.getElementById('p-rise').value / apix,
+      twistDeg:+document.getElementById('p-twist').value,
+      helixAxis,
+      edgePx:  +document.getElementById('p-edge').value / apix,
+    });
+    document.getElementById('preview-busy').style.display='none';
+    setPreviewImages(result.slices);
+    updateStats(result.stats);
+  } catch(err) {
+    document.getElementById('preview-busy').style.display='none';
+    toast('Preview error: '+err.message,'error');
+  }
+}
+
+function setPreviewImages(slices) {
+  function setOne(id, s, label) {
+    const wrap=document.getElementById(id); if (!wrap||!s) return;
+    const c=float32ToCanvas(s.slice, s.w, s.h);
+    wrap.innerHTML=`<img src="${c.toDataURL()}" style="width:100%;image-rendering:pixelated">
+                    <div class="preview-overlay">${label}</div>`;
+  }
+  setOne('prev-side', slices.side, 'Side');
+  setOne('prev-z25',  slices.z25,  '25%');
+  setOne('prev-z50',  slices.z50,  '50%');
+  setOne('prev-z75',  slices.z75,  '75%');
+}
+
+function updateStats(stats) {
+  document.getElementById('stat-volfrac').textContent = (stats.volume_fraction??'—')+'%';
+  document.getElementById('stat-voxels').textContent  =
+    stats.mask_voxels!=null
+      ? (stats.mask_voxels>1e6?(stats.mask_voxels/1e6).toFixed(1)+'M':stats.mask_voxels.toLocaleString())
+      : '—';
+  document.getElementById('stat-rise').textContent = stats.rise_px!=null?parseFloat(stats.rise_px).toFixed(1):'—';
+  document.getElementById('stat-edge').textContent = stats.edge_px!=null?parseFloat(stats.edge_px).toFixed(1):'—';
+}
+
+// ════════════════════════════════════════════════════════════════
+// EXPORT  (worker, full resolution)
+// ════════════════════════════════════════════════════════════════
+
+async function exportMask() {
+  if (!volShape) { toast('Load a volume first','warning'); return; }
+  const md=getMask2DFlat();
+  if (!md) return;
+
+  const progress=document.getElementById('export-progress');
+  const bar=document.getElementById('export-bar');
+  const txt=document.getElementById('export-text');
+  const btn=document.getElementById('btn-export');
+  progress.style.display='block'; btn.disabled=true; bar.style.width='5%'; txt.textContent='Starting…';
+
+  const outName=(document.getElementById('export-name').value||'helical_mask');
+  try {
+    const result=await workerCall('export', {
+      mask2d:   md.flat,
+      maskW:    md.w,
+      maskH:    md.h,
+      shape:    volShape,
+      risePx:   +document.getElementById('p-rise').value / apix,
+      twistDeg: +document.getElementById('p-twist').value,
+      helixAxis,
+      edgePx:   +document.getElementById('p-edge').value / apix,
+      apix,
+    }, (pct, msg) => { bar.style.width=pct+'%'; txt.textContent=msg; });
+
+    bar.style.width='100%'; txt.textContent='Done! Downloading…';
+    const blob=new Blob([result.buffer],{type:'application/octet-stream'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=outName+'.mrc'; a.click();
+    URL.revokeObjectURL(url);
+    toast('Exported: '+outName+'.mrc','success');
+    setTimeout(()=>{ progress.style.display='none'; btn.disabled=false; bar.style.width='0%'; },1800);
+  } catch(err) {
+    progress.style.display='none'; btn.disabled=false;
+    toast('Export failed: '+err.message,'error');
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// AUTO-MASK  — 2-D density segmentation on the current slice
+// ════════════════════════════════════════════════════════════════
+
+// Debounced preview: updates ~300 ms after the last slider move
+function scheduleAutomaskPreview() {
+  clearTimeout(automaskPreviewTimer);
+  automaskPreviewTimer = setTimeout(generateAutomaskPreview, 300);
+}
+
+// ── Main auto-mask computation ───────────────────────────────────
+function generateAutomaskPreview() {
+  if (!volData) { toast('Load a volume first', 'warning'); return; }
+
+  const threshPct = +document.getElementById('am-threshold').value / 100;
+  const dilPx     = +document.getElementById('am-dilation').value;
+  const central   = document.getElementById('am-central').checked;
+  const fillHoles = document.getElementById('am-fillholes').checked;
+
+  const {slice, w, h} = getVolumeSlice(volData, volShape, viewAxis, sliceIndex);
+
+  // Normalize to [0,1] using full range so percentile threshold is meaningful
+  const norm = normalizeSlice(slice, 0, 100);
+
+  // Find the density value at the chosen percentile
+  const sorted = Float32Array.from(norm).sort();
+  const tVal   = sorted[Math.max(0, Math.min(sorted.length - 1, Math.floor(sorted.length * threshPct)))];
+
+  // Binary threshold
+  let binary = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) binary[i] = norm[i] >= tVal ? 1 : 0;
+
+  // Select region of interest
+  binary = central ? findCentralComponent(binary, w, h) : findLargestComponent(binary, w, h);
+
+  // Fill holes before dilation so the filled region also gets expanded
+  if (fillHoles) binary = fillHoles2D(binary, w, h);
+
+  // Morphological dilation
+  if (dilPx > 0) binary = dilate2D(binary, w, h, dilPx);
+
+  automaskData = binary;
+  showAutomask = true;
+  buildAutomaskColorCanvas(w, h);
+
+  // Coverage stats
+  const covered = binary.reduce((s, v) => s + v, 0);
+  const pct     = (covered / binary.length * 100).toFixed(1);
+  document.getElementById('am-status').textContent = `Coverage: ${pct}% (${covered.toLocaleString()} px)`;
+
+  render();
+}
+
+// Build the cyan-tinted overlay canvas from automaskData
+function buildAutomaskColorCanvas(w, h) {
+  automaskColorCanvas = document.createElement('canvas');
+  automaskColorCanvas.width = w; automaskColorCanvas.height = h;
+  const ctx2 = automaskColorCanvas.getContext('2d');
+  const img  = ctx2.createImageData(w, h);
+  for (let i = 0; i < w * h; i++) {
+    if (!automaskData[i]) continue;
+    img.data[i*4]   = 0;
+    img.data[i*4+1] = 200;
+    img.data[i*4+2] = 255;
+    img.data[i*4+3] = 140;   // ~55% opacity
+  }
+  ctx2.putImageData(img, 0, 0);
+}
+
+// Commit the automask preview to the actual mask canvas (with undo)
+function applyAutomask() {
+  if (!automaskData) { generateAutomaskPreview(); return; }
+  const {w, h} = getSliceDimensions();
+  pushUndoState();
+  const id = maskCtx.getImageData(0, 0, w, h);
+  for (let i = 0; i < w * h; i++) {
+    const v = automaskData[i] ? 255 : 0;
+    id.data[i*4]=v; id.data[i*4+1]=v; id.data[i*4+2]=v; id.data[i*4+3]=255;
+  }
+  maskCtx.putImageData(id, 0, 0);
+  applyCSymmetry();
+  markMaskDirty();
+  clearAutomask();
+  render();
+  schedulePreview();
+  toast('Automask applied — refine with brush tools', 'success');
+}
+
+// Hide/clear the automask preview without committing
+function clearAutomask() {
+  showAutomask    = false;
+  automaskData    = null;
+  automaskColorCanvas = null;
+  document.getElementById('am-status').textContent = '';
+  render();
+}
+
+// ── Morphological / connected-component helpers ──────────────────
+
+// BFS from center pixel outward; returns the 4-connected component
+// that touches (or is nearest to) the image center.
+function findCentralComponent(binary, w, h) {
+  const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+
+  // If center is not in the mask, spiral outward to find the nearest mask pixel
+  let startX = cx, startY = cy;
+  if (!binary[cy * w + cx]) {
+    let found = false;
+    outer:
+    for (let r = 1; r < Math.max(w, h); r++) {
+      for (let dy = -r; dy <= r && !found; dy++) {
+        for (let dx = -r; dx <= r && !found; dx++) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue; // only ring border
+          const nx = cx + dx, ny = cy + dy;
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          if (binary[ny * w + nx]) { startX = nx; startY = ny; found = true; }
+        }
+      }
+      if (found) break outer;
+    }
+    if (!found) return new Uint8Array(w * h);
+  }
+
+  // 4-connected BFS
+  const result  = new Uint8Array(w * h);
+  const visited = new Uint8Array(w * h);
+  const queue   = [startY * w + startX];
+  visited[startY * w + startX] = 1;
+  const dirs = [-1, 1, -w, w];
+  while (queue.length) {
+    const idx = queue.pop();
+    result[idx] = 1;
+    const x = idx % w, y = Math.floor(idx / w);
+    for (const d of dirs) {
+      const ni = idx + d;
+      const nx = ni % w, ny = Math.floor(ni / w);
+      if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+      if (!visited[ni] && binary[ni]) { visited[ni] = 1; queue.push(ni); }
+    }
+  }
+  return result;
+}
+
+// Find the single largest 4-connected component above threshold
+function findLargestComponent(binary, w, h) {
+  const visited = new Uint8Array(w * h);
+  let bestPx = null, bestSz = 0;
+  const dirs = [-1, 1, -w, w];
+
+  for (let start = 0; start < w * h; start++) {
+    if (!binary[start] || visited[start]) continue;
+    const comp = [start];
+    visited[start] = 1;
+    const queue = [start];
+    while (queue.length) {
+      const idx = queue.pop();
+      const x = idx % w, y = Math.floor(idx / w);
+      for (const d of dirs) {
+        const ni = idx + d;
+        const nx = ni % w, ny = Math.floor(ni / w);
+        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+        if (!visited[ni] && binary[ni]) { visited[ni] = 1; queue.push(ni); comp.push(ni); }
+      }
+    }
+    if (comp.length > bestSz) { bestSz = comp.length; bestPx = comp; }
+  }
+
+  const result = new Uint8Array(w * h);
+  if (bestPx) for (const i of bestPx) result[i] = 1;
+  return result;
+}
+
+// Flood-fill the background from all edge pixels, then mark anything
+// unreachable as interior → sets it to 1 (fills holes inside the mask).
+function fillHoles2D(binary, w, h) {
+  const bg    = new Uint8Array(w * h);
+  const queue = [];
+  const add   = i => { if (!bg[i] && !binary[i]) { bg[i] = 1; queue.push(i); } };
+  // Seed all border pixels
+  for (let x = 0; x < w; x++) { add(x); add((h - 1) * w + x); }
+  for (let y = 1; y < h - 1; y++) { add(y * w); add(y * w + w - 1); }
+  const dirs = [-1, 1, -w, w];
+  while (queue.length) {
+    const idx = queue.pop();
+    const x = idx % w, y = Math.floor(idx / w);
+    for (const d of dirs) {
+      const ni = idx + d;
+      const nx = ni % w, ny = Math.floor(ni / w);
+      if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+      if (!bg[ni] && !binary[ni]) { bg[ni] = 1; queue.push(ni); }
+    }
+  }
+  // Anything not background and not already masked is a hole
+  const result = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) result[i] = (binary[i] || !bg[i]) ? 1 : 0;
+  return result;
+}
+
+// Morphological dilation by a disk of given radius (pixels)
+function dilate2D(binary, w, h, radius) {
+  if (radius <= 0) return binary;
+  const result = new Uint8Array(w * h);
+  const r2 = radius * radius;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (binary[y * w + x]) { result[y * w + x] = 1; continue; }
+      const yLo = Math.max(0, y - radius), yHi = Math.min(h - 1, y + radius);
+      const xLo = Math.max(0, x - radius), xHi = Math.min(w - 1, x + radius);
+      let hit = false;
+      for (let dy = yLo; dy <= yHi && !hit; dy++) {
+        const dy2 = (dy - y) * (dy - y);
+        for (let dx = xLo; dx <= xHi && !hit; dx++) {
+          if (dy2 + (dx - x) * (dx - x) <= r2 && binary[dy * w + dx]) hit = true;
+        }
+      }
+      if (hit) result[y * w + x] = 1;
+    }
+  }
+  return result;
+}
+
+
+function togglePanel(hdr) {
+  hdr.classList.toggle('open');
+  hdr.nextElementSibling.classList.toggle('open');
+}
+
+function openModal()  { document.getElementById('shortcuts-modal').classList.add('open'); }
+function closeModal() { document.getElementById('shortcuts-modal').classList.remove('open'); }
+
+function toast(msg, type='info') {
+  const c=document.getElementById('toast-container');
+  const t=document.createElement('div');
+  t.className='toast '+type; t.textContent=msg;
+  c.appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(),300); },3200);
+}
+</script>
+</body>
+</html>
