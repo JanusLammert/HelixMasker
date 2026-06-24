@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Test / working data
+*.mrc
+*.mrcs
+
+# Editor
+.vscode/
+.idea/
