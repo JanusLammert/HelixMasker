@@ -245,6 +245,7 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
     <kbd>Scroll</kbd> Brush size &nbsp;
     <kbd>Ctrl+Scroll</kbd> Zoom
     <button class="btn" onclick="openModal()" style="margin-left:8px;padding:4px 10px;font-size:11px">⌨ All shortcuts</button>
+    <button class="btn" id="btn-r2o" onclick="openR2OModal()" style="margin-left:8px;padding:4px 10px;font-size:11px;outline:none" title="Export Provenance Manifest">Provenance</button>
   </div>
 </header>
 
@@ -1051,6 +1052,7 @@ function float32ToCanvas(data, w, h) {
 
 let volData  = null;      // Float32Array (nz·ny·nx)
 let volShape = null;      // [nz, ny, nx]
+let loadedVolName = null; // filename of the currently loaded MRC
 let apix     = 1.0;
 let viewAxis  = 0;        // 0=XY, 1=XZ, 2=YZ
 let helixAxis = 2;        // 0=X, 1=Y, 2=Z
@@ -1146,6 +1148,7 @@ function loadMRCFile(file) {
       volData  = parsed.data;
       volShape = parsed.shape;
       apix     = parsed.apix;
+      loadedVolName = file.name;
 
       const [nz, ny, nx] = volShape;
       const badge = document.getElementById('vol-badge');
@@ -1779,6 +1782,7 @@ async function exportMask() {
     const a=document.createElement('a');
     a.href=url; a.download=outName+'.mrc'; a.click();
     URL.revokeObjectURL(url);
+    r2oTrackDownload(outName+'.mrc',{rise_A:+document.getElementById('p-rise').value,twist_deg:+document.getElementById('p-twist').value,edge_A:+document.getElementById('p-edge').value,apix,box_size:volShape,helix_axis:helixAxis,c_symmetry:cSymmetry});
     toast('Exported: '+outName+'.mrc','success');
     setTimeout(()=>{ progress.style.display='none'; btn.disabled=false; bar.style.width='0%'; },1800);
   } catch(err) {
@@ -2017,6 +2021,127 @@ function togglePanel(hdr) {
 function openModal()  { document.getElementById('shortcuts-modal').classList.add('open'); }
 function closeModal() { document.getElementById('shortcuts-modal').classList.remove('open'); }
 
+// ─── R2O Provenance ──────────────────────────────────────────────────────────
+const _r2oTool='helixmask';
+let r2oTrackedOutputs=[];
+let r2oDirHandle=null;
+
+function r2oSaveTrackedOutputs(){try{localStorage.setItem('r2o_'+_r2oTool+'_outputs',JSON.stringify(r2oTrackedOutputs));}catch(e){}}
+function r2oLoadTrackedOutputs(){try{const raw=localStorage.getItem('r2o_'+_r2oTool+'_outputs');if(raw)r2oTrackedOutputs=JSON.parse(raw);}catch(e){r2oTrackedOutputs=[];}}
+
+function r2oTrackDownload(filename,params){
+  const idx=r2oTrackedOutputs.findIndex(e=>e.filename===filename);
+  const entry={filename,params,downloaded_at:new Date().toISOString()};
+  if(idx>=0)r2oTrackedOutputs[idx]=entry;else r2oTrackedOutputs.push(entry);
+  r2oSaveTrackedOutputs();
+  const btn=document.getElementById('btn-r2o');
+  if(btn){btn.style.outline='2px solid var(--accent,#c8a84b)';btn.title=`${r2oTrackedOutputs.length} file(s) tracked — click to export provenance`;}
+}
+
+function r2oGetId(){
+  let id=localStorage.getItem('r2o_'+_r2oTool+'_id');
+  if(!id){id=_r2oTool+'-'+crypto.randomUUID().split('-')[0];localStorage.setItem('r2o_'+_r2oTool+'_id',id);}
+  return id;
+}
+
+function r2oNewSession(){
+  if(!confirm('Start a new session? This mints a fresh ID and clears tracked exports.'))return;
+  localStorage.removeItem('r2o_'+_r2oTool+'_id');
+  localStorage.removeItem('r2o_'+_r2oTool+'_outputs');
+  r2oTrackedOutputs=[];r2oDirHandle=null;
+  const lbl=document.getElementById('r2o-root-lbl');if(lbl){lbl.style.display='none';lbl.textContent='';}
+  const btn=document.getElementById('btn-r2o');if(btn){btn.style.outline='';btn.title='Export Provenance Manifest';}
+  openR2OModal();
+}
+
+function r2oCapture(canvas,maxW,maxH){
+  if(!canvas||!canvas.width||!canvas.height)return null;
+  try{
+    const scale=Math.min(1,maxW/canvas.width,maxH/canvas.height);
+    const w=Math.round(canvas.width*scale),h=Math.round(canvas.height*scale);
+    const t=Object.assign(document.createElement('canvas'),{width:w,height:h});
+    const tc=t.getContext('2d');tc.fillStyle='#000';tc.fillRect(0,0,w,h);tc.drawImage(canvas,0,0,w,h);
+    return t.toDataURL('image/png').replace(/^data:image\/png;base64,/,'');
+  }catch(e){return null;}
+}
+
+function closeR2OModal(){document.getElementById('r2o-modal').classList.remove('open');}
+
+async function r2oFindInDir(dirHandle,filename,path,depth){
+  if(depth<0)return null;
+  try{
+    for await(const[name,handle]of dirHandle.entries()){
+      if(handle.kind==='file'&&name===filename)return path?`${path}/${name}`:name;
+      if(handle.kind==='directory'){const sub=path?`${path}/${name}`:name;const r=await r2oFindInDir(handle,filename,sub,depth-1);if(r)return r;}
+    }
+  }catch(e){}
+  return null;
+}
+
+async function r2oPickProjectRoot(){
+  if(!window.showDirectoryPicker){alert('Directory picker requires Chrome, Edge, or Brave.');return;}
+  try{r2oDirHandle=await window.showDirectoryPicker({mode:'read'});}
+  catch(e){if(e.name!=='AbortError')console.warn('r2oPickProjectRoot:',e);return;}
+  const lbl=document.getElementById('r2o-root-lbl');
+  if(lbl){lbl.textContent=`Searching ${r2oDirHandle.name}/ …`;lbl.style.display='';}
+  const names=document.getElementById('r2o-inputs').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const resolved=[];
+  for(const n of names){const base=n.split('/').pop();const found=await r2oFindInDir(r2oDirHandle,base,'',4);resolved.push(found||n);}
+  if(lbl)lbl.textContent=`Project root: ${r2oDirHandle.name}/`;
+  document.getElementById('r2o-inputs').value=resolved.join('\n');
+  document.getElementById('r2o-inputs-hint').textContent=`Paths resolved relative to ${r2oDirHandle.name}/. Edit if the prefix looks wrong.`;
+}
+
+function openR2OModal(){
+  const id=r2oGetId();
+  const outName=document.getElementById('export-name').value||'helical_mask';
+  document.getElementById('r2o-inputs').value=loadedVolName||'';
+  const outLines=r2oTrackedOutputs.length
+    ?r2oTrackedOutputs.map(e=>`External/r2o/${id}/${e.filename}`)
+    :[`External/r2o/${id}/${outName}.mrc`];
+  document.getElementById('r2o-output').value=outLines.join('\n');
+  if(!document.getElementById('r2o-title').value&&loadedVolName)
+    document.getElementById('r2o-title').value=`HelixMask — ${loadedVolName}`;
+  document.getElementById('r2o-id-lbl').textContent=`ID: ${id}  ·  ${r2oTrackedOutputs.length} file(s) tracked`;
+  const[nz,ny,nx]=volShape||[0,0,0];
+  document.getElementById('r2o-params-preview').textContent=JSON.stringify({
+    input_volume:loadedVolName,box_size:[nx,ny,nz],apix,
+    rise_A:+document.getElementById('p-rise').value,
+    twist_deg:+document.getElementById('p-twist').value,
+    edge_A:+document.getElementById('p-edge').value,
+    helix_axis:helixAxis,c_symmetry:cSymmetry,
+  },null,2);
+  document.getElementById('r2o-modal').classList.add('open');
+}
+
+function exportR2O(){
+  const id=r2oGetId();
+  const title=document.getElementById('r2o-title').value.trim()||`HelixMask ${id}`;
+  const notes=document.getElementById('r2o-notes').value.trim();
+  const inputLines=document.getElementById('r2o-inputs').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const outputLines=document.getElementById('r2o-output').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const outputs=outputLines.map((path,i)=>{const t=r2oTrackedOutputs[i];return{path,node_type:'Mask',role:'helical_mask',...(t?{parameters:t.params}:{})};});
+  const screenshots=[];
+  if(displayCanvas){const shot=r2oCapture(displayCanvas,512,512);if(shot)screenshots.push({label:'Mask view',png_base64:shot});}
+  const[nz,ny,nx]=volShape||[0,0,0];
+  const manifest={
+    r2o_schema:'1.0',id,tool:'HelixMask',tool_version:'1.0.0',
+    created:new Date().toISOString(),title,
+    inputs:inputLines.map(p=>({path:p,node_type:'DensityMap'})),
+    outputs,
+    parameters:{rise_A:+document.getElementById('p-rise').value,twist_deg:+document.getElementById('p-twist').value,edge_A:+document.getElementById('p-edge').value,apix,box_size:[nx,ny,nz],helix_axis:helixAxis,c_symmetry:cSymmetry},
+    summary:{n_masks_exported:r2oTrackedOutputs.length,files_exported:r2oTrackedOutputs.map(e=>e.filename)},
+    screenshots,notes,link_hints:{},
+  };
+  const blob=new Blob([JSON.stringify(manifest,null,2)],{type:'application/json'});
+  const a=Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob),download:`${id}.r2o.json`});
+  a.click();URL.revokeObjectURL(a.href);
+  closeR2OModal();
+}
+
+r2oLoadTrackedOutputs();
+if(r2oTrackedOutputs.length){const btn=document.getElementById('btn-r2o');if(btn){btn.style.outline='2px solid var(--accent,#c8a84b)';btn.title=`${r2oTrackedOutputs.length} file(s) tracked — click to export provenance`;}}
+
 function toast(msg, type='info') {
   const c=document.getElementById('toast-container');
   const t=document.createElement('div');
@@ -2025,5 +2150,59 @@ function toast(msg, type='info') {
   setTimeout(()=>{ t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(),300); },3200);
 }
 </script>
+<style>
+#r2o-modal{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:999;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .15s;}
+#r2o-modal.open{opacity:1;pointer-events:all;}
+#r2o-modal .r2o-box{background:var(--surface,#111c2b);border:1px solid var(--border,#1e3a5f);border-radius:10px;width:540px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;}
+#r2o-modal .r2o-hdr{padding:12px 16px;border-bottom:1px solid var(--border,#1e3a5f);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+#r2o-modal .r2o-title{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent,#c8a84b);}
+#r2o-modal .r2o-body{padding:16px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;flex:1;}
+#r2o-modal .r2o-ft{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--border,#1e3a5f);flex-shrink:0;}
+#r2o-modal .r2o-lbl{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-dim,#6a8aaa);font-family:'IBM Plex Mono',monospace;}
+#r2o-modal textarea,#r2o-modal input[type=text]{width:100%;box-sizing:border-box;background:#060f1c;border:1px solid var(--border,#1e3a5f);color:var(--text,#c8d8e8);border-radius:5px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:10px;resize:vertical;}
+#r2o-modal pre{background:#060f1c;border:1px solid var(--border,#1e3a5f);border-radius:5px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-dim,#6a8aaa);overflow:auto;max-height:100px;margin:0;}
+</style>
+<div id="r2o-modal" onclick="if(event.target===this)closeR2OModal()">
+  <div class="r2o-box">
+    <div class="r2o-hdr">
+      <span class="r2o-title">Export Provenance Manifest · R2O</span>
+      <button class="btn" onclick="closeR2OModal()" style="padding:2px 8px;font-size:11px">✕</button>
+    </div>
+    <div class="r2o-body">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label class="r2o-lbl">Title</label>
+        <input type="text" id="r2o-title" placeholder="e.g. HelixMask — myosin_map.mrc, rise 5.1 Å">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <label class="r2o-lbl" style="flex:1">Input file paths <span style="font-weight:400;text-transform:none">(project-relative, one per line)</span></label>
+          <button class="btn" style="padding:3px 10px;font-size:10px;white-space:nowrap" onclick="r2oPickProjectRoot()">📂 Set project root</button>
+        </div>
+        <div id="r2o-root-lbl" style="font-size:10px;color:var(--accent,#c8a84b);font-family:'IBM Plex Mono',monospace;display:none"></div>
+        <textarea id="r2o-inputs" rows="2" placeholder="Refine3D/job042/run_class001.mrc"></textarea>
+        <span id="r2o-inputs-hint" style="font-size:10px;color:var(--text-dim,#6a8aaa)">Pick the project root above to auto-fill, or edit manually to add the JobType/jobNNN prefix.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label class="r2o-lbl">Output file paths <span style="font-weight:400;text-transform:none">(project-relative, one per line)</span></label>
+        <textarea id="r2o-output" rows="2" placeholder="External/r2o/…/helical_mask.mrc"></textarea>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label class="r2o-lbl">Notes <span style="font-weight:400;text-transform:none">(optional)</span></label>
+        <input type="text" id="r2o-notes" placeholder="Free-form notes about this session">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label class="r2o-lbl">Parameters <span style="font-weight:400;text-transform:none">(auto-captured)</span></label>
+        <pre id="r2o-params-preview"></pre>
+      </div>
+    </div>
+    <div class="r2o-ft">
+      <span style="font-size:10px;color:var(--text-dim,#6a8aaa)" id="r2o-id-lbl"></span>
+      <button class="btn" style="padding:3px 10px;font-size:10px;margin-left:6px" onclick="r2oNewSession()">↺ New session</button>
+      <div style="flex:1"></div>
+      <button class="btn" onclick="closeR2OModal()">Cancel</button>
+      <button class="btn btn-accent" style="margin-left:8px" onclick="exportR2O()">Download Manifest</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
