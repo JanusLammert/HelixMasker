@@ -583,6 +583,9 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
     <button class="btn btn-accent" id="btn-export" onclick="exportMask()">
       ⬇ Generate &amp; Download 3D Mask
     </button>
+    <button class="btn btn-accent" id="btn-export-masked" onclick="exportMaskedVolume()" title="Multiplies the loaded reference map by the generated soft mask, voxel-for-voxel, and downloads the result as its own MRC">
+      ⬇ Download Masked Volume
+    </button>
     <div class="export-progress" id="export-progress">
       <div class="export-progress-bar" id="export-bar"></div>
       <div class="export-progress-text" id="export-text">Computing…</div>
@@ -625,7 +628,7 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
      JAVASCRIPT — everything runs in-browser, no server needed
 ══════════════════════════════════════════════════════════════ -->
 <script>
-const APP_VERSION='1.0.0';
+const APP_VERSION='1.1.0';
 const APP_LICENSE_TEXT=`                    GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
@@ -1604,6 +1607,25 @@ self.onmessage = ({data: msg}) => {
       const mrcBuf = writeMRC(soft, nz, ny, nx, apix);
 
       self.postMessage({type:'export', id, buffer: mrcBuf}, [mrcBuf]);
+
+    } else if (msg.type === 'exportMasked') {
+      const {id, mask2d, maskW, maskH, shape, risePx, twistDeg, helixAxis, edgePx, apix, volume} = msg;
+      const [nz, ny, nx] = shape;
+
+      self.postMessage({type:'progress', id, pct:10, txt:'Applying helical symmetry…'});
+      const m3 = applyHelicalSymmetry(mask2d, maskW, maskH, shape, risePx, twistDeg, helixAxis);
+
+      self.postMessage({type:'progress', id, pct:45, txt:'Computing soft edge…'});
+      const soft = applySoftEdge(m3, nz, ny, nx, edgePx);
+
+      self.postMessage({type:'progress', id, pct:70, txt:'Multiplying map by mask…'});
+      const masked = new Float32Array(soft.length);
+      for (let i = 0; i < soft.length; i++) masked[i] = volume[i] * soft[i];
+
+      self.postMessage({type:'progress', id, pct:90, txt:'Writing MRC file…'});
+      const mrcBuf = writeMRC(masked, nz, ny, nx, apix);
+
+      self.postMessage({type:'exportMasked', id, buffer: mrcBuf}, [mrcBuf]);
     }
   } catch(err) {
     self.postMessage({type:'error', id: msg.id, message: err.message + '\\n' + (err.stack||'')});
@@ -1635,7 +1657,9 @@ function workerCall(type, payload, onProgress) {
   return new Promise((resolve, reject) => {
     const id = ++_msgId;
     _pending[id] = {resolve, reject, onProgress};
-    const transfers = payload.mask2d instanceof Float32Array ? [payload.mask2d.buffer] : [];
+    const transfers = [];
+    if (payload.mask2d instanceof Float32Array) transfers.push(payload.mask2d.buffer);
+    if (payload.volume instanceof Float32Array) transfers.push(payload.volume.buffer);
     worker.postMessage({type, id, ...payload}, transfers);
   });
 }
@@ -2443,7 +2467,8 @@ async function exportMask() {
   const bar=document.getElementById('export-bar');
   const txt=document.getElementById('export-text');
   const btn=document.getElementById('btn-export');
-  progress.style.display='block'; btn.disabled=true; bar.style.width='5%'; txt.textContent='Starting…';
+  const btnMasked=document.getElementById('btn-export-masked');
+  progress.style.display='block'; btn.disabled=true; btnMasked.disabled=true; bar.style.width='5%'; txt.textContent='Starting…';
 
   const outName=(document.getElementById('export-name').value||'helical_mask');
   try {
@@ -2467,9 +2492,57 @@ async function exportMask() {
     URL.revokeObjectURL(url);
     r2oTrackDownload(outName+'.mrc',{rise_A:+document.getElementById('p-rise').value,twist_deg:+document.getElementById('p-twist').value,edge_A:+document.getElementById('p-edge').value,apix,box_size:volShape,helix_axis:helixAxis,c_symmetry:cSymmetry});
     toast('Exported: '+outName+'.mrc','success');
-    setTimeout(()=>{ progress.style.display='none'; btn.disabled=false; bar.style.width='0%'; },1800);
+    setTimeout(()=>{ progress.style.display='none'; btn.disabled=false; btnMasked.disabled=false; bar.style.width='0%'; },1800);
   } catch(err) {
-    progress.style.display='none'; btn.disabled=false;
+    progress.style.display='none'; btn.disabled=false; btnMasked.disabled=false;
+    toast('Export failed: '+err.message,'error');
+  }
+}
+
+// Multiplies the loaded reference map by the generated soft mask, voxel-for-voxel, and
+// downloads the result as its own MRC (leaves the mask-only export above untouched).
+async function exportMaskedVolume() {
+  if (!volShape) { toast('Load a volume first','warning'); return; }
+  if (!volData)  { toast('Load a volume first','warning'); return; }
+  const md=getMask2DFlat();
+  if (!md) return;
+
+  const progress=document.getElementById('export-progress');
+  const bar=document.getElementById('export-bar');
+  const txt=document.getElementById('export-text');
+  const btn=document.getElementById('btn-export');
+  const btnMasked=document.getElementById('btn-export-masked');
+  progress.style.display='block'; btn.disabled=true; btnMasked.disabled=true; bar.style.width='5%'; txt.textContent='Starting…';
+
+  const outName=(document.getElementById('export-name').value||'helical_mask');
+  try {
+    // Transfer a COPY of volData, not volData itself - postMessage transfer detaches the
+    // buffer on the sending side, and volData is still needed for the live 2D slice preview.
+    const volumeCopy = volData.slice();
+    const result=await workerCall('exportMasked', {
+      mask2d:   md.flat,
+      maskW:    md.w,
+      maskH:    md.h,
+      shape:    volShape,
+      risePx:   +document.getElementById('p-rise').value / apix,
+      twistDeg: +document.getElementById('p-twist').value,
+      helixAxis,
+      edgePx:   +document.getElementById('p-edge').value / apix,
+      apix,
+      volume:   volumeCopy,
+    }, (pct, msg) => { bar.style.width=pct+'%'; txt.textContent=msg; });
+
+    bar.style.width='100%'; txt.textContent='Done! Downloading…';
+    const blob=new Blob([result.buffer],{type:'application/octet-stream'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=outName+'_masked.mrc'; a.click();
+    URL.revokeObjectURL(url);
+    r2oTrackDownload(outName+'_masked.mrc',{rise_A:+document.getElementById('p-rise').value,twist_deg:+document.getElementById('p-twist').value,edge_A:+document.getElementById('p-edge').value,apix,box_size:volShape,helix_axis:helixAxis,c_symmetry:cSymmetry});
+    toast('Exported: '+outName+'_masked.mrc','success');
+    setTimeout(()=>{ progress.style.display='none'; btn.disabled=false; btnMasked.disabled=false; bar.style.width='0%'; },1800);
+  } catch(err) {
+    progress.style.display='none'; btn.disabled=false; btnMasked.disabled=false;
     toast('Export failed: '+err.message,'error');
   }
 }
